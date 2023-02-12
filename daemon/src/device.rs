@@ -7,28 +7,34 @@ use pipewire::{
     proxy::ProxyT,
     Properties,
 };
+use std::collections::HashMap;
+use std::fmt;
 
-/// represents Pipewire [MEDIA_CLASS](`pipewire::Properties::MEDIA_CLASS`)
-pub enum VirtualDeviceType {
+/// # Pipewire virtual devices
+pub enum DeviceType {
     Sink,
     Source,
 }
 
-impl ToString for VirtualDeviceType {
-    fn to_string(&self) -> String {
-        match self {
-            VirtualDeviceType::Sink => String::from("Audio/Sink"),
-            VirtualDeviceType::Source => String::from("Audio/Source"),
-        }
+impl fmt::Display for DeviceType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                DeviceType::Sink => String::from("Audio/Sink"),
+                DeviceType::Source => String::from("Audio/Source"),
+            }
+        )
     }
 }
 
-impl VirtualDeviceType {
+impl DeviceType {
     /// Return the default factory for this device type
     fn factory(&self) -> Factory {
         match self {
-            VirtualDeviceType::Sink => Factory::NullAudioSink,
-            VirtualDeviceType::Source => Factory::NullAudioSource,
+            DeviceType::Sink => Factory::NullAudioSink,
+            DeviceType::Source => Factory::NullAudioSource,
         }
     }
 }
@@ -39,50 +45,119 @@ pub enum Factory {
     NullAudioSink,
     /// A virtual source
     NullAudioSource,
+    /// A custom Factory
+    Custom(String),
 }
 
-impl ToString for Factory {
-    fn to_string(&self) -> String {
+impl fmt::Display for Factory {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Factory::NullAudioSink => String::from("support.null-audio-sink"),
+                Factory::NullAudioSource => String::from("support.null-audio-source"),
+                Factory::Custom(v) => v.clone(),
+            }
+        )
+    }
+}
+
+/// Audio position setups
+pub enum AudioPosition {
+    /// MONO
+    Mono,
+    /// FL, FR
+    Stereo,
+    /// FL, FR, FC, SL, SR
+    Sourround5_1,
+    /// FL, FR, FC, LFE, RL, RR, SL, SR
+    Sourround7_1,
+    /// FL, FR, SL, SR
+    Quad,
+    /// Example: `vec!["FL", "FR"]`
+    Custom(Vec<String>),
+}
+
+impl AudioPosition {
+    /// Get the value as a property
+    fn to_prop(&self) -> String {
         match self {
-            Factory::NullAudioSink => String::from("support.null-audio-sink"),
-            Factory::NullAudioSource => String::from("support.null-audio-source"),
+            AudioPosition::Mono => String::from("[ MONO ]"),
+            AudioPosition::Stereo => String::from("[ FL FR ]"),
+            AudioPosition::Sourround5_1 => String::from("[ FL FR FC SL SR ]"),
+            AudioPosition::Sourround7_1 => String::from("[ FL FR FC LFE RL RR SL SR ]"),
+            AudioPosition::Quad => String::from("[ FL FR SL SR ]"),
+            AudioPosition::Custom(e) => {
+                format!("[ {} ]", e.join(" "))
+            }
         }
+    }
+}
+
+impl Default for AudioPosition {
+    fn default() -> Self {
+        AudioPosition::Stereo
     }
 }
 
 /// Create virtual Pipewire device (wrapper for [Core::create_object](`Pipewire::Core::create_object()``))
 pub struct VirtualDevice<P: ProxyT> {
     pub props: Properties,
-    factory: Factory,
-    device_type: VirtualDeviceType,
+    device_type: DeviceType,
     name: String,
     device: OnceCell<P>,
 }
 
 impl<P: ProxyT> VirtualDevice<P> {
-    /// Create a new virtual device with stereo output and the default [Factory](`Factory`)
-    pub fn new(device_type: VirtualDeviceType, name: String) -> Self {
+    /// Create a new virtual device with stereo output and the default [Factory](`Factory`) using a builder.
+    pub fn new_builder(device_type: DeviceType, name: String) -> Self {
         let factory = device_type.factory();
         Self {
             props: properties! {
                 *FACTORY_NAME => factory.to_string(),
                 *NODE_NAME => name.clone(),
+                "audio.position" => AudioPosition::default().to_prop()
             },
-            factory,
             device_type,
             name,
             device: OnceCell::new(),
         }
     }
 
-    /// Create in the [Core](pipewire::Core)
-    ///
-    /// dev:
-    /// - [Link](`pipewire::link::Link`)
-    /// - [Node](`pipewire::node::Node`)
-    /// - [Port](`pipewire::port::Port`)
-    /// - [Metadata](`pipewire::metadata::Metadata`)
-    pub fn create(&self, core: pipewire::Core) -> Result<&P, Error> {
+    /// Create a new virtual device by manually specifying the [Properties](`pipewire::Properties`) for more advanced usage cases.
+    /// **NOTICE:** If the props are not right there will be no warning about it.
+    pub fn new_with_props(
+        props: Properties,
+        device_type: DeviceType,
+        core: pipewire::Core,
+        name: String,
+    ) -> Result<Self, Error> {
+        let device = Self {
+            props,
+            device_type,
+            name,
+            device: OnceCell::new(),
+        };
+        match device.send(core) {
+            Ok(_) => Ok(device),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Prevents the device from being destroyed when this struct gets dropped
+    pub fn linger(&mut self) -> &Self {
+        self.props.insert(*OBJECT_LINGER, "true");
+        self
+    }
+
+    /// Modify the channels
+    pub fn audio_position(&mut self, position: AudioPosition) {
+        self.props.insert("audio.position", &position.to_prop());
+    }
+
+    /// Send in the [Core](pipewire::Core)
+    pub fn send(&self, core: pipewire::Core) -> Result<&P, Error> {
         let factory = match self.props.get("FACTORY_NAME") {
             Some(f) => f,
             None => return Err(Error::MissingFactory(self.name.clone())),
@@ -97,20 +172,14 @@ impl<P: ProxyT> VirtualDevice<P> {
         }
     }
 
-    pub fn audio_position(&mut self, positions: &[String]) {
-        self.props.insert(
-            "audio.position",
-            format!("[{}]", positions.join(" ")).as_str(),
-        );
-    }
-
-    /*
-    pub fn destroy(&self, core: pipewire::Core) -> Result<(), Error> {
-        let dev = match self.device.get() {
+    pub fn destroy(&mut self, core: pipewire::Core) -> Result<pipewire::spa::AsyncSeq, Error> {
+        let dev = match self.device.take() {
             Some(v) => v,
-            None => return Err(Error::DeviceNotCreated)
+            None => return Err(Error::DeviceNotCreated),
+        };
+        match core.destroy_object(dev) {
+            Ok(v) => Ok(v),
+            Err(e) => Err(Error::Pipewire(e)),
         }
-        Ok(core.destroy_object(dev));
     }
-    */
 }
