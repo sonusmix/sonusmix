@@ -10,7 +10,7 @@ use pipewire::{
 use std::collections::HashMap;
 use std::fmt;
 
-/// # Pipewire virtual devices
+/// [MEDIA_CLASS](`pipewire::keys::MEDIA_CLASS`)
 pub enum DeviceType {
     Sink,
     Source,
@@ -39,7 +39,7 @@ impl DeviceType {
     }
 }
 
-/// represents Pipewire [FACTORY_NAME](`pipewire::Properties::FACTORY_NAME`)
+/// [FACTORY_NAME](`pipewire::keys::FACTORY_NAME`)
 pub enum Factory {
     /// A virtual sink
     NullAudioSink,
@@ -63,7 +63,7 @@ impl fmt::Display for Factory {
     }
 }
 
-/// Audio position setups
+/// audio.position
 pub enum AudioPosition {
     /// MONO
     Mono,
@@ -101,7 +101,7 @@ impl Default for AudioPosition {
     }
 }
 
-/// Create virtual Pipewire device (wrapper for [Core::create_object](`Pipewire::Core::create_object()``))
+/// Create a virtual Pipewire device
 pub struct VirtualDevice<P: ProxyT> {
     pub props: Properties,
     device_type: DeviceType,
@@ -126,6 +126,7 @@ impl<P: ProxyT> VirtualDevice<P> {
     }
 
     /// Create a new virtual device by manually specifying the [Properties](`pipewire::Properties`) for more advanced usage cases.
+    /// This will also automatically [send](VirtualDevice::send()) the device.
     /// **NOTICE:** If the props are not right there will be no warning about it.
     pub fn new_with_props(
         props: Properties,
@@ -164,6 +165,7 @@ impl<P: ProxyT> VirtualDevice<P> {
         }
     }
 
+    /// Retrieve the id
     pub fn id(&self) -> Result<u32, Error> {
         match self.device_link() {
             Ok(v) => Ok(v.id()),
@@ -171,7 +173,7 @@ impl<P: ProxyT> VirtualDevice<P> {
         }
     }
 
-    /// Send in the [Core](pipewire::Core)
+    /// Send to the [Core](pipewire::Core)
     pub fn send(&self, core: pipewire::Core) -> Result<&P, Error> {
         let factory = match self.props.get("FACTORY_NAME") {
             Some(f) => f,
@@ -187,6 +189,8 @@ impl<P: ProxyT> VirtualDevice<P> {
         }
     }
 
+    /// Destroy this object from the [Core](pipewire::Core).
+    /// Can be added again using [send()](VirtualDevice::send()).
     pub fn destroy(&mut self, core: pipewire::Core) -> Result<pipewire::spa::AsyncSeq, Error> {
         let dev = match self.device.take() {
             Some(v) => v,
