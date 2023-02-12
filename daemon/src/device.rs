@@ -146,6 +146,12 @@ impl<P: ProxyT> VirtualDevice<P> {
         }
     }
 
+    /// Add a property to the device
+    pub fn add_prop(&mut self, key: String, value: String) -> &Self {
+        self.props.insert(key, value);
+        self
+    }
+
     /// Prevents the device from being destroyed when this struct gets dropped
     pub fn linger(&mut self) -> &Self {
         self.props.insert(*OBJECT_LINGER, "true");
@@ -153,8 +159,9 @@ impl<P: ProxyT> VirtualDevice<P> {
     }
 
     /// Modify the channels
-    pub fn audio_position(&mut self, position: AudioPosition) {
+    pub fn audio_position(&mut self, position: AudioPosition) -> &Self {
         self.props.insert("audio.position", &position.to_prop());
+        self
     }
 
     /// retrieve the device link
