@@ -2284,21 +2284,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "pulsemeeter-common"
-version = "0.1.0"
-dependencies = [
- "once_cell",
- "pipewire",
- "thiserror",
-]
-
-[[package]]
 name = "pulsemeeter-daemon"
 version = "0.1.0"
 dependencies = [
  "log",
+ "once_cell",
  "pipewire",
  "simple_logger",
+ "thiserror",
  "tokio",
 ]
 
