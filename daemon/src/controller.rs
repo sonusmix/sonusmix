@@ -1,14 +1,14 @@
+use log::info;
+use pipewire::spa::ReadableDict;
+use pipewire::types::ObjectType;
+use pipewire::{channel as pw_channel, keys::*, properties, Context, Core, MainLoop, Properties};
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::thread;
 use std::sync::mpsc as std_channel;
-use log::info;
-use pipewire::spa::ReadableDict;
-use pipewire::types::ObjectType;
-use pipewire::{channel as pw_channel, MainLoop, Context, Properties, properties, Core, keys::*};
+use std::thread;
 use tokio::sync::mpsc as tk_channel;
 
 use crate::events::{ControllerEvent, PipewireEvent};
@@ -35,12 +35,15 @@ impl PipewireController {
 
     /// This thread takes events from a stdlib mpsc channel and puts them into a pipewire::channel, because
     /// pipewire::channel uses a synchronous mutex and thus could cause deadlocks if called from async code.
-    /// 
+    ///
     /// It's stupid, I know. (An alternative might be to wrap the pipewire::channel Sender in an async mutex. That would
     /// prevent deadlocks between async tasks, but could still block, albeit not for long, if the pipewire controlle
     /// thread is trying to receive a message.)
     // TODO: Possibly do the above
-    fn adapter_thread(tx: pw_channel::Sender<ControllerEvent>, rx: std_channel::Receiver<ControllerEvent>) {
+    fn adapter_thread(
+        tx: pw_channel::Sender<ControllerEvent>,
+        rx: std_channel::Receiver<ControllerEvent>,
+    ) {
         for message in rx.into_iter() {
             let exit = matches!(message, ControllerEvent::Exit);
             tx.send(message)
@@ -52,24 +55,23 @@ impl PipewireController {
         }
     }
 
-    fn pipewire_thread(tx: tk_channel::UnboundedSender<PipewireEvent>, rx: pw_channel::Receiver<ControllerEvent>) {
-        let main_loop = MainLoop::new()
-            .expect("Failed to create pipewire main loop");
+    fn pipewire_thread(
+        tx: tk_channel::UnboundedSender<PipewireEvent>,
+        rx: pw_channel::Receiver<ControllerEvent>,
+    ) {
+        let main_loop = MainLoop::new().expect("Failed to create pipewire main loop");
         let context = Context::with_properties(
             &main_loop,
             properties! {
                 *pipewire::keys::MODULE_NAME => "libpipewire-module-loopback"
-            }
+            },
         )
-            .expect("Could not get pipewire context");
+        .expect("Could not get pipewire context");
 
-
-        let core = context.connect(None)
-            .expect("Could not get pipewire core");
-        let registry = core.get_registry()
+        let core = context.connect(None).expect("Could not get pipewire core");
+        let registry = core
+            .get_registry()
             .expect("Could not get pipewire registry");
-
-        
 
         // Get factories
         let mut factory_store = Rc::new(RefCell::new(FactoryStore::new()));
@@ -82,7 +84,9 @@ impl PipewireController {
                     move |global| {
                         if global.type_ == ObjectType::Factory {
                             if let Some(props) = &global.props {
-                                if let (Some(type_name), Some(name)) = (props.get("factory.type.name"), props.get("factory.name")) {
+                                if let (Some(type_name), Some(name)) =
+                                    (props.get("factory.type.name"), props.get("factory.name"))
+                                {
                                     let mut factory_store = (*factory_store).borrow_mut();
                                     factory_store.set_from_str(type_name, name.to_string());
                                 }
@@ -92,8 +96,7 @@ impl PipewireController {
                 })
                 .register();
         }
-        
-        
+
         let _rx = rx.attach(&main_loop, {
             let main_loop = main_loop.clone();
             let core = core.clone();
@@ -105,27 +108,41 @@ impl PipewireController {
             .add_listener_local()
             .global({
                 let tx = tx.clone();
-                move |global| tx.send(PipewireEvent::NewGlobal(format!("{:?}", global))).map_err(|_| ()).expect("Pipewire event receiver hung up")
+                move |global| {
+                    tx.send(PipewireEvent::NewGlobal(format!("{:?}", global)))
+                        .map_err(|_| ())
+                        .expect("Pipewire event receiver hung up")
+                }
             })
             .register();
 
         main_loop.run();
     }
 
-    fn handle_controller_event(event: ControllerEvent, main_loop: &MainLoop, core: &Core, channel: &tk_channel::UnboundedSender<PipewireEvent>) {
+    fn handle_controller_event(
+        event: ControllerEvent,
+        main_loop: &MainLoop,
+        core: &Core,
+        channel: &tk_channel::UnboundedSender<PipewireEvent>,
+    ) {
         // TODO: It might be better to merge this into pipewire_thread().
         match event {
-            ControllerEvent::Exit => main_loop.quit(),
             ControllerEvent::CreateSink(s) => {
-                core.create_object::<pipewire::node::Node, _>("support.null-audio-sink", &properties! {
-                    *FACTORY_NAME => "support.null-audio-sink",
-                    *NODE_NAME => s,
-                    *MEDIA_CLASS => "Audio/Sink",
-                    *OBJECT_LINGER => "false",
-                    "audio.position" => "[FL FR]",
-                })
-                    .expect("Could not create sink");
-            },
+                std::mem::forget(
+                    core.create_object::<pipewire::node::Node, _>(
+                        "adapter",
+                        &properties! {
+                            *FACTORY_NAME => "support.null-audio-sink",
+                            *NODE_NAME => s,
+                            *MEDIA_CLASS => "Audio/Sink",
+                            *OBJECT_LINGER => "false",
+                            "audio.position" => "[FL FR]",
+                        },
+                    )
+                    .expect("Could not create sink"),
+                );
+            }
+            ControllerEvent::Exit => main_loop.quit(),
         }
     }
 }
@@ -158,13 +175,10 @@ impl FromStr for PipewireType {
     }
 }
 
-struct FactoryStore (HashMap<PipewireType, String>);
+struct FactoryStore(HashMap<PipewireType, String>);
 
 impl FactoryStore {
-    const NEEDED_TYPES: [PipewireType; 2] = [
-        PipewireType::Link,
-        PipewireType::Node,
-    ];
+    const NEEDED_TYPES: [PipewireType; 2] = [PipewireType::Link, PipewireType::Node];
 
     fn new() -> Self {
         Self(HashMap::new())
@@ -190,3 +204,4 @@ impl FactoryStore {
         Self::NEEDED_TYPES.iter().all(|pt| self.0.contains_key(pt))
     }
 }
+
