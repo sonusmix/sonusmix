@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "common",
+    "daemon",
+    "frontend",
+    "frontend/src-tauri",
+]
