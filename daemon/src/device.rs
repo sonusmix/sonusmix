@@ -4,7 +4,7 @@ use pipewire::{
     keys::*,
     prelude::{ReadableDict, WritableDict},
     properties,
-    proxy::ProxyT,
+    proxy::{Proxy, ProxyT},
     Properties,
 };
 use std::collections::HashMap;
@@ -156,11 +156,26 @@ impl<P: ProxyT> VirtualDevice<P> {
         self.props.insert("audio.position", &position.to_prop());
     }
 
+    /// retrieve the device link
+    pub fn device_link(&self) -> Result<&Proxy, Error> {
+        match self.device.get() {
+            Some(v) => Ok(v.upcast_ref()),
+            None => Err(Error::DeviceNotCreated),
+        }
+    }
+
+    pub fn id(&self) -> Result<u32, Error> {
+        match self.device_link() {
+            Ok(v) => Ok(v.id()),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Send in the [Core](pipewire::Core)
     pub fn send(&self, core: pipewire::Core) -> Result<&P, Error> {
         let factory = match self.props.get("FACTORY_NAME") {
             Some(f) => f,
-            None => return Err(Error::MissingFactory(self.name.clone())),
+            None => return Err(Error::MissingFactory),
         };
 
         match core.create_object::<P, _>(factory, &self.props) {
