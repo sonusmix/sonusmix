@@ -4,7 +4,12 @@ use pipewire::{prelude::ReadableDict, keys::*, registry::GlobalObject};
 
 // TODO: Figure out if it would be advantageous to have a way to more easily find all the links for a given node or
 // TODO: port, and if so, figure out a way to do it
-struct Store {
+
+/// This type is a local store for all of the pipewire objects that this program is notified about. Because it needs
+/// to keep its stores for each of the types in sync with each other, it only exposes its own methods for mutation,
+/// however, it provides methods for accessing the internal maps for reading only.
+#[derive(Default, Debug)]
+pub(crate) struct PipewireStore {
     nodes: HashMap<u32, Node>,
     ports: HashMap<u32, Port>,
     // links is indexed by port ids
@@ -13,13 +18,17 @@ struct Store {
     orphan_ports: HashMap<u32, Vec<u32>>,
 }
 
-impl Store {
+impl PipewireStore {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
     // TODO: Fix error handling on these methods
-    fn add_object(&mut self, object: GlobalObject<impl ReadableDict>) -> Result<(), ()> {
+    pub(crate) fn add_object(&mut self, object: &GlobalObject<impl ReadableDict>) -> Result<(), ()> {
         match object.type_ {
-            pipewire::types::ObjectType::Node => self.add_node(object.id, &object.props.ok_or(())?),
-            pipewire::types::ObjectType::Port => self.add_port(object.id, &object.props.ok_or(())?),
-            pipewire::types::ObjectType::Link => self.add_link(object.id, &object.props.ok_or(())?),
+            pipewire::types::ObjectType::Node => self.add_node(object.id, object.props.as_ref().ok_or(())?),
+            pipewire::types::ObjectType::Port => self.add_port(object.id, object.props.as_ref().ok_or(())?),
+            pipewire::types::ObjectType::Link => self.add_link(object.id, object.props.as_ref().ok_or(())?),
             _ => Err(()),
         }
     }
@@ -166,9 +175,22 @@ impl Store {
 
         Ok(())
     }
+
+    pub(crate) fn nodes(&self) -> &HashMap<u32, Node> {
+        &self.nodes
+    }
+
+    pub(crate) fn ports(&self) -> &HashMap<u32, Port> {
+        &self.ports
+    }
+
+    pub(crate) fn links(&self) -> &HashMap<LinkEnds, Link> {
+        &self.links
+    }
 }
 
-struct Node {
+#[derive(Debug)]
+pub(crate) struct Node {
     id: u32,
     name: String,
     kind: NodeKind,
@@ -176,21 +198,23 @@ struct Node {
     ports: Vec<u32>,
 }
 
-enum NodeKind {
+#[derive(Debug)]
+pub(crate) enum NodeKind {
     Device,
     Virtual,
     Application,
 }
 
-#[derive(PartialEq)]
-enum NodeClass {
+#[derive(PartialEq, Debug)]
+pub(crate) enum NodeClass {
     Source,
     Sink,
     SinkMonitor,
     Duplex,
 }
 
-struct Port {
+#[derive(Debug)]
+pub(crate) struct Port {
     id: u32,
     name: String,
     channel: String,
@@ -199,19 +223,21 @@ struct Port {
     node: u32,
 }
 
-enum PortDirection {
+#[derive(Debug)]
+pub(crate) enum PortDirection {
     In,
     Out,
 }
 
-struct Link {
+#[derive(Debug)]
+pub(crate) struct Link {
     id: u32,
     ports: LinkEnds,
     nodes: LinkEnds,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct LinkEnds {
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct LinkEnds {
     input: u32,
     output: u32,
 }

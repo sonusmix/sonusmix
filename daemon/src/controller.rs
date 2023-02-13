@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, debug};
 use pipewire::spa::ReadableDict;
 use pipewire::types::ObjectType;
 use pipewire::{channel as pw_channel, keys::*, properties, Context, Core, MainLoop, Properties};
@@ -7,11 +7,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::mpsc as std_channel;
+use std::sync::{mpsc as std_channel, Arc};
 use std::thread;
-use tokio::sync::mpsc as tk_channel;
+use tokio::sync::{mpsc as tk_channel, RwLock};
 
 use crate::events::{ControllerEvent, PipewireEvent};
+use crate::store::PipewireStore;
 
 // TODO: Should these fields be private?
 pub(crate) struct PipewireController {
@@ -21,12 +22,12 @@ pub(crate) struct PipewireController {
 
 // TODO: This may not need to be part of a struct
 impl PipewireController {
-    pub(crate) fn start() -> PipewireController {
+    pub(crate) fn start(store: Arc<RwLock<PipewireStore>>) -> PipewireController {
         let (return_tx, adapter_rx) = std_channel::channel();
         let (adapter_tx, controller_rx) = pw_channel::channel();
         let (controller_tx, return_rx) = tk_channel::unbounded_channel(); // TODO: Should this be bounded or unbounded?
         thread::spawn(move || Self::adapter_thread(adapter_tx, adapter_rx));
-        thread::spawn(move || Self::pipewire_thread(controller_tx, controller_rx));
+        thread::spawn(move || Self::pipewire_thread(controller_tx, controller_rx, store));
         Self {
             tx: return_tx,
             rx: return_rx,
@@ -58,6 +59,7 @@ impl PipewireController {
     fn pipewire_thread(
         tx: tk_channel::UnboundedSender<PipewireEvent>,
         rx: pw_channel::Receiver<ControllerEvent>,
+        store: Arc<RwLock<PipewireStore>>,
     ) {
         let main_loop = MainLoop::new().expect("Failed to create pipewire main loop");
         let context = Context::with_properties(
@@ -113,6 +115,17 @@ impl PipewireController {
                         .map_err(|_| ())
                         .expect("Pipewire event receiver hung up")
                 }
+            })
+            .register();
+
+        // Add new objects to the store
+        let _store_listener = registry
+            .add_listener_local()
+            .global(move |global| {
+                debug!("adding object to store");
+                // Throw away the error for now
+                // TODO: Do something with this
+                let _ = store.blocking_write().add_object(global);
             })
             .register();
 
