@@ -10,6 +10,8 @@ use crate::events::ExitSignal;
 use crate::{controller::PipewireController, events::ControllerEvent};
 
 mod controller;
+mod device;
+mod error;
 mod events;
 
 fn main() {
@@ -52,7 +54,10 @@ async fn command_listener(mut exit: ExitSignal, tx: std_channel::Sender<Controll
     debug!("Hello from command_listener!");
     tokio::time::sleep(Duration::from_secs(5)).await;
     info!("Created virtual sink");
-    tx.send(ControllerEvent::CreateSink("pulsemeeter-daemon".to_string())).unwrap();
+    tx.send(ControllerEvent::CreateSink(
+        "pulsemeeter-daemon".to_string(),
+    ))
+    .unwrap();
     exit.wait().await;
 }
 
