@@ -2,9 +2,13 @@ use std::future::Future;
 
 use tokio::sync::oneshot;
 
+use crate::device::VirtualDeviceKind;
+
 /// Contains events sent to the pipewire control thread.
-pub(crate) enum ControllerEvent {
-    CreateSink(String),
+#[derive(Clone)]
+pub enum ControllerEvent {
+    CreateVirtualDevice(VirtualDeviceKind, String),
+    RefreshVirtualDevice(u32),
     Exit,
 }
 

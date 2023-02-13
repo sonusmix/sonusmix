@@ -1,4 +1,5 @@
-use crate::error::Error;
+use crate::{error::Error, events::ControllerEvent};
+use log::debug;
 use once_cell::sync::OnceCell;
 use pipewire::{
     keys::*,
@@ -7,34 +8,36 @@ use pipewire::{
     proxy::{Proxy, ProxyT},
     Properties,
 };
-use std::fmt;
+use std::{fmt, rc::Rc};
 
 /// [MEDIA_CLASS](`pipewire::keys::MEDIA_CLASS`)
-#[derive(Debug)]
-pub enum DeviceType {
+#[derive(Clone, Debug)]
+pub enum VirtualDeviceKind {
     Sink,
+    // TODO: Source creation doesn't seem to work yet. I think the factory name should be the same as Sink but then
+    // TODO: there's other weird stuff going on too
     Source,
 }
 
-impl fmt::Display for DeviceType {
+impl fmt::Display for VirtualDeviceKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{}",
             match self {
-                DeviceType::Sink => String::from("Audio/Sink"),
-                DeviceType::Source => String::from("Audio/Source"),
+                VirtualDeviceKind::Sink => String::from("Audio/Sink"),
+                VirtualDeviceKind::Source => String::from("Audio/Source"),
             }
         )
     }
 }
 
-impl DeviceType {
+impl VirtualDeviceKind {
     /// Return the default factory for this device type
     fn factory(&self) -> Factory {
         match self {
-            DeviceType::Sink => Factory::NullAudioSink,
-            DeviceType::Source => Factory::NullAudioSource,
+            VirtualDeviceKind::Sink => Factory::NullAudioSink,
+            VirtualDeviceKind::Source => Factory::NullAudioSource,
         }
     }
 }
@@ -102,17 +105,19 @@ impl Default for AudioPosition {
 }
 
 /// Create a virtual Pipewire device
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct VirtualDevice {
     pub props: Properties,
-    device_type: DeviceType,
+    device_type: VirtualDeviceKind,
     name: String,
     device: OnceCell<pipewire::node::Node>,
+    listener: OnceCell<pipewire::node::NodeListener>,
+    node_id: Rc<OnceCell<u32>>,
 }
 
 impl VirtualDevice {
     /// Create a new virtual device with stereo output and the default [Factory](`Factory`) using a builder.
-    pub fn new_builder(device_type: DeviceType, name: String) -> Self {
+    pub fn new_builder(device_type: VirtualDeviceKind, name: String) -> Self {
         let factory = device_type.factory();
         Self {
             props: properties! {
@@ -125,6 +130,8 @@ impl VirtualDevice {
             device_type,
             name,
             device: OnceCell::new(),
+            listener: OnceCell::new(),
+            node_id: Rc::new(OnceCell::new()),
         }
     }
 
@@ -133,17 +140,20 @@ impl VirtualDevice {
     /// **NOTICE:** If the props are not right there will be no warning about it.
     pub fn new_with_props(
         props: Properties,
-        device_type: DeviceType,
+        device_type: VirtualDeviceKind,
         core: &pipewire::Core,
         name: String,
+        refresh_channel: pipewire::channel::Sender<ControllerEvent>,
     ) -> Result<Self, Error> {
-        let device = Self {
+        let mut device = Self {
             props,
             device_type,
             name,
             device: OnceCell::new(),
+            listener: OnceCell::new(),
+            node_id: Rc::new(OnceCell::new()),
         };
-        match device.send(core) {
+        match device.send(core, refresh_channel) {
             Ok(_) => Ok(device),
             Err(e) => Err(e),
         }
@@ -177,18 +187,43 @@ impl VirtualDevice {
 
     /// Retrieve the proxy id
     pub fn id(&self) -> Result<u32, Error> {
-        match self.device_link() {
-            Ok(v) => Ok(v.id()),
-            Err(e) => Err(e),
-        }
+        self.device_link().map(|v| v.id())
+    }
+    
+    /// Get the device's id
+    pub fn node_id(&self) -> Option<u32> {
+        self.node_id.get().copied()
     }
 
     /// Send to the [Core](pipewire::Core)
-    pub fn send(&self, core: &pipewire::Core) -> Result<&pipewire::node::Node, Error> {
+    pub fn send(
+        &mut self,
+        core: &pipewire::Core,
+        refresh_channel: pipewire::channel::Sender<ControllerEvent>,
+    ) -> Result<&pipewire::node::Node, Error> {
         match core.create_object::<pipewire::node::Node, _>("adapter", &self.props) {
-            Ok(n) => match self.device.try_insert(n) {
-                Ok(n) => Ok(n),
-                Err(_) => Err(Error::DeviceAlreadyCreated),
+            Ok(n) => {
+                let n = self.device.try_insert(n).map_err(|_| Error::DeviceAlreadyCreated)?;
+                
+                self.listener.set(
+                    n.add_listener_local()
+                    .info({
+                        let node_id = self.node_id.clone();
+                        move |node_info| {
+                            let id = node_info.id();
+                            let _ = node_id.set(id);
+                            refresh_channel.send(ControllerEvent::RefreshVirtualDevice(id))
+                                .map_err(|_| ())
+                                .expect("Pipewire controller thread hung up unexpectedly");
+                            debug!("Set node_id: {}", id);
+                        }
+                    })
+                    .register()
+                )
+                    .map_err(|_| ())
+                    .expect("running send() twice should already have been caught at self.device.try_insert() above");
+                
+                Ok(n)
             },
             Err(e) => Err(Error::Pipewire(e)),
         }
@@ -197,13 +232,7 @@ impl VirtualDevice {
     /// Destroy this object from the [Core](pipewire::Core).
     /// Can be added again using [send()](VirtualDevice::send()).
     pub fn destroy(&mut self, core: &pipewire::Core) -> Result<pipewire::spa::AsyncSeq, Error> {
-        let dev = match self.device.take() {
-            Some(v) => v,
-            None => return Err(Error::DeviceNotCreated),
-        };
-        match core.destroy_object(dev) {
-            Ok(v) => Ok(v),
-            Err(e) => Err(Error::Pipewire(e)),
-        }
+        let dev = self.device.take().ok_or(Error::DeviceNotCreated)?;
+        Ok(core.destroy_object(dev)?)
     }
 }

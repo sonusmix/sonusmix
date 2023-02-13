@@ -1,4 +1,5 @@
 use log::{info, debug};
+use pipewire::node::Node;
 use pipewire::spa::ReadableDict;
 use pipewire::types::ObjectType;
 use pipewire::{channel as pw_channel, keys::*, properties, Context, Core, MainLoop, Properties};
@@ -11,6 +12,7 @@ use std::sync::{mpsc as std_channel, Arc};
 use std::thread;
 use tokio::sync::{mpsc as tk_channel, RwLock};
 
+use crate::device::{VirtualDevice, VirtualDeviceKind};
 use crate::events::{ControllerEvent, PipewireEvent};
 use crate::store::PipewireStore;
 
@@ -26,8 +28,11 @@ impl PipewireController {
         let (return_tx, adapter_rx) = std_channel::channel();
         let (adapter_tx, controller_rx) = pw_channel::channel();
         let (controller_tx, return_rx) = tk_channel::unbounded_channel(); // TODO: Should this be bounded or unbounded?
-        thread::spawn(move || Self::adapter_thread(adapter_tx, adapter_rx));
-        thread::spawn(move || Self::pipewire_thread(controller_tx, controller_rx, store));
+        thread::spawn({
+            let adapter_tx = adapter_tx.clone();
+            move || Self::adapter_thread(adapter_tx, adapter_rx)
+        });
+        thread::spawn(move || Self::pipewire_thread(controller_tx, adapter_tx, controller_rx, store));
         Self {
             tx: return_tx,
             rx: return_rx,
@@ -58,6 +63,7 @@ impl PipewireController {
 
     fn pipewire_thread(
         tx: tk_channel::UnboundedSender<PipewireEvent>,
+        self_tx: pw_channel::Sender<ControllerEvent>,
         rx: pw_channel::Receiver<ControllerEvent>,
         store: Arc<RwLock<PipewireStore>>,
     ) {
@@ -75,8 +81,10 @@ impl PipewireController {
             .get_registry()
             .expect("Could not get pipewire registry");
 
+        let virtual_devices: Rc<RefCell<Vec<VirtualDevice>>> = Rc::new(RefCell::new(Vec::new()));
+
         // Get factories
-        let mut factory_store = Rc::new(RefCell::new(FactoryStore::new()));
+        let factory_store = Rc::new(RefCell::new(FactoryStore::new()));
         {
             let factory_listener = registry
                 .add_listener_local()
@@ -103,7 +111,19 @@ impl PipewireController {
             let main_loop = main_loop.clone();
             let core = core.clone();
             let tx = tx.clone();
-            move |event| Self::handle_controller_event(event, &main_loop, &core, &tx)
+            let self_tx = self_tx.clone();
+            let store = store.clone();
+            let virtual_devices = virtual_devices.clone();
+            move |event| match event {
+                ControllerEvent::CreateVirtualDevice(kind, name) => {
+                    let mut device = VirtualDevice::new_builder(kind, name);
+                    device.send(&core, self_tx.clone()).expect("Could not create device");
+                    (*virtual_devices).borrow_mut().push(device);
+                }
+                ControllerEvent::RefreshVirtualDevice(id) => store.blocking_write()
+                    .refresh_virtual_device(id, &(*virtual_devices).borrow()),
+                ControllerEvent::Exit => main_loop.quit(),
+            }
         });
 
         let _listener = registry
@@ -122,41 +142,15 @@ impl PipewireController {
         let _store_listener = registry
             .add_listener_local()
             .global(move |global| {
+                let virtual_devices = virtual_devices.clone();
                 debug!("adding object to store");
                 // Throw away the error for now
                 // TODO: Do something with this
-                let _ = store.blocking_write().add_object(global);
+                let _ = store.blocking_write().add_object(global, &(*virtual_devices).borrow());
             })
             .register();
 
         main_loop.run();
-    }
-
-    fn handle_controller_event(
-        event: ControllerEvent,
-        main_loop: &MainLoop,
-        core: &Core,
-        channel: &tk_channel::UnboundedSender<PipewireEvent>,
-    ) {
-        // TODO: It might be better to merge this into pipewire_thread().
-        match event {
-            ControllerEvent::CreateSink(s) => {
-                std::mem::forget(
-                    core.create_object::<pipewire::node::Node, _>(
-                        "adapter",
-                        &properties! {
-                            *FACTORY_NAME => "support.null-audio-sink",
-                            *NODE_NAME => s,
-                            *MEDIA_CLASS => "Audio/Sink",
-                            *OBJECT_LINGER => "false",
-                            "audio.position" => "[FL FR]",
-                        },
-                    )
-                    .expect("Could not create sink"),
-                );
-            }
-            ControllerEvent::Exit => main_loop.quit(),
-        }
     }
 }
 

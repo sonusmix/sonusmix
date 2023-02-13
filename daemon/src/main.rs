@@ -2,7 +2,7 @@ use std::sync::{mpsc as std_channel, Arc};
 use std::time::Duration;
 
 use events::PipewireEvent;
-use tokio::sync::{mpsc as tk_channel, RwLock};
+use tokio::sync::{mpsc as tk_channel, RwLock, Mutex};
 
 use log::{debug, info};
 
@@ -61,9 +61,10 @@ async fn command_listener(
         _store: Arc<RwLock<PipewireStore>>,
     ) {
     debug!("Hello from command_listener!");
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     info!("Created virtual sink");
-    tx.send(ControllerEvent::CreateSink(
+    tx.send(ControllerEvent::CreateVirtualDevice(
+        device::VirtualDeviceKind::Sink,
         "pulsemeeter-daemon".to_string(),
     ))
     .unwrap();

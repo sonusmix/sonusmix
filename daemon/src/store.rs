@@ -2,6 +2,8 @@ use std::{collections::{HashMap, hash_map}};
 
 use pipewire::{prelude::ReadableDict, keys::*, registry::GlobalObject};
 
+use crate::{device::VirtualDevice, error::Error};
+
 // TODO: Figure out if it would be advantageous to have a way to more easily find all the links for a given node or
 // TODO: port, and if so, figure out a way to do it
 
@@ -24,27 +26,33 @@ impl PipewireStore {
     }
 
     // TODO: Fix error handling on these methods
-    pub(crate) fn add_object(&mut self, object: &GlobalObject<impl ReadableDict>) -> Result<(), ()> {
-        match object.type_ {
-            pipewire::types::ObjectType::Node => self.add_node(object.id, object.props.as_ref().ok_or(())?),
-            pipewire::types::ObjectType::Port => self.add_port(object.id, object.props.as_ref().ok_or(())?),
-            pipewire::types::ObjectType::Link => self.add_link(object.id, object.props.as_ref().ok_or(())?),
-            _ => Err(()),
+    pub(crate) fn add_object(
+        &mut self,
+        object: &GlobalObject<impl ReadableDict>,
+        virtual_devices: &[VirtualDevice]
+    ) -> Result<(), Error> {
+        let props = object.props.as_ref().ok_or(Error::MissingProperty(None))?;
+        match &object.type_ {
+            pipewire::types::ObjectType::Node => self.add_node(object.id, props, virtual_devices),
+            pipewire::types::ObjectType::Port => self.add_port(object.id, props),
+            pipewire::types::ObjectType::Link => self.add_link(object.id, props),
+            t => Err(Error::InvalidObjectType(t.clone())),
         }
     }
 
-    fn add_node(&mut self, id: u32, props: &impl ReadableDict) -> Result<(), ()> {
+    fn add_node(&mut self, id: u32, props: &impl ReadableDict, virtual_devices: &[VirtualDevice]) -> Result<(), Error> {
         // Create the node
         let name = props.get(*NODE_NICK)
             .or_else(|| props.get("node.description"))
             .or_else(|| props.get(*APP_NAME))
             .or_else(||props.get(*NODE_NAME))
-            .ok_or(())?
+            .ok_or(Error::MissingProperty(Some(*NODE_NAME)))?
             .to_string();
 
         // TODO: Maybe improve detection of what is an "application"
-        // TODO: Add virtual device detection (if the id matches a virtual device this application created)
-        let kind = if props.get(*APP_NAME).is_some() {
+        let kind = if virtual_devices.iter().any(|d| matches!(d.node_id(), Some(nid) if nid == id)) {
+            NodeKind::Virtual
+        } else if props.get(*APP_NAME).is_some() {
             NodeKind::Application
         } else {
             NodeKind::Device
@@ -65,10 +73,10 @@ impl PipewireStore {
         }
 
         let class = {
-            let mut media_class = props.get(*MEDIA_CLASS).ok_or(())?
+            let mut media_class = props.get(*MEDIA_CLASS).ok_or(Error::MissingProperty(Some(*MEDIA_CLASS)))?
                 .to_string();
             if !media_class.contains("Audio") {
-                return Err(());
+                return Err(Error::NotAudio(media_class));
             }
 
             if !media_class.contains('/') {
@@ -95,7 +103,7 @@ impl PipewireStore {
                     NodeClass::Sink
                 }
             } else {
-                return Err(())
+                return Err(Error::UnknownNode(media_class));
             }
         };
 
@@ -104,19 +112,20 @@ impl PipewireStore {
         Ok(())
     }
 
-    fn add_port(&mut self, id: u32, props: &impl ReadableDict) -> Result<(), ()> {
+    fn add_port(&mut self, id: u32, props: &impl ReadableDict) -> Result<(), Error> {
         let name = props.get(*PORT_NAME)
-            .ok_or(())?
+            .ok_or(Error::MissingProperty(Some(*PORT_NAME)))?
             .to_string();
         
         let channel = props.get(*AUDIO_CHANNEL)
-            .ok_or(())?
+            .ok_or(Error::MissingProperty(Some(*AUDIO_CHANNEL)))?
             .to_string();
         
         let direction = match props.get(*PORT_DIRECTION) {
             Some("in") => PortDirection::In,
             Some("out") => PortDirection::Out,
-            _ => return Err(()),
+            Some(s) => return Err(Error::InvalidPropValue(*PORT_DIRECTION, s.to_string())),
+            None => return Err(Error::MissingProperty(Some(*PORT_DIRECTION))),
         };
 
         // TODO: The "port.monitor" prop may not be the most reliable way of determining if a port is a monitor. All
@@ -125,9 +134,8 @@ impl PipewireStore {
         let is_monitor = matches!(props.get(*PORT_MONITOR), Some("true"));
 
         let node = props.get(*NODE_ID)
-            .ok_or(())?
-            .parse::<u32>()
-            .map_err(|_| ())?;
+            .ok_or(Error::MissingProperty(Some(*PORT_MONITOR)))?
+            .parse::<u32>()?;
 
         self.ports.insert(id, Port { id, name, channel, direction, is_monitor, node });
 
@@ -148,32 +156,37 @@ impl PipewireStore {
         Ok(())
     }
 
-    fn add_link(&mut self, id: u32, props: &impl ReadableDict) -> Result<(), ()> {
+    fn add_link(&mut self, id: u32, props: &impl ReadableDict) -> Result<(), Error> {
         let ports = LinkEnds {
             input: props.get(*LINK_INPUT_PORT)
-                .ok_or(())?
-                .parse()
-                .map_err(|_| ())?,
+                .ok_or(Error::MissingProperty(Some(*LINK_INPUT_PORT)))?
+                .parse()?,
             output: props.get(*LINK_OUTPUT_PORT)
-                .ok_or(())?
-                .parse()
-                .map_err(|_| ())?,
+                .ok_or(Error::MissingProperty(Some(*LINK_OUTPUT_PORT)))?
+                .parse()?,
         };
 
         let nodes = LinkEnds {
             input: props.get(*LINK_INPUT_NODE)
-                .ok_or(())?
-                .parse()
-                .map_err(|_| ())?,
+                .ok_or(Error::MissingProperty(Some(*LINK_INPUT_NODE)))?
+                .parse()?,
             output: props.get(*LINK_OUTPUT_NODE)
-                .ok_or(())?
-                .parse()
-                .map_err(|_| ())?,
+                .ok_or(Error::MissingProperty(Some(*LINK_OUTPUT_NODE)))?
+                .parse()?,
         };
 
         self.links.insert(ports, Link { id, ports, nodes });
 
         Ok(())
+    }
+
+    /// Checks a node to see if it should now be a virtual device, and if so, edits it.
+    pub(crate) fn refresh_virtual_device(&mut self, id: u32, virtual_devices: &[VirtualDevice]) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            if !matches!(node.kind, NodeKind::Virtual) && virtual_devices.iter().any(|d| matches!(d.node_id(), Some(nid) if nid == id)) {
+                node.kind = NodeKind::Virtual;
+            }
+        }
     }
 
     pub(crate) fn nodes(&self) -> &HashMap<u32, Node> {
@@ -200,9 +213,9 @@ pub(crate) struct Node {
 
 #[derive(Debug)]
 pub(crate) enum NodeKind {
-    Device,
     Virtual,
     Application,
+    Device,
 }
 
 #[derive(PartialEq, Debug)]
