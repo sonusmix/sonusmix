@@ -11,6 +11,8 @@ use crate::store::PipewireStore;
 use crate::{controller::PipewireController, events::ControllerEvent};
 
 mod controller;
+mod device;
+mod error;
 mod events;
 mod store;
 
@@ -61,7 +63,10 @@ async fn command_listener(
     debug!("Hello from command_listener!");
     tokio::time::sleep(Duration::from_secs(5)).await;
     info!("Created virtual sink");
-    tx.send(ControllerEvent::CreateSink("pulsemeeter-daemon".to_string())).unwrap();
+    tx.send(ControllerEvent::CreateSink(
+        "pulsemeeter-daemon".to_string(),
+    ))
+    .unwrap();
     exit.wait().await;
 }
 
