@@ -27,11 +27,20 @@ impl ExitSignal {
     pub(crate) fn pair() -> (Self, Self) {
         let (tx1, rx1) = oneshot::channel();
         let (tx2, rx2) = oneshot::channel();
-        (Self { tx: Some(tx1), rx: rx2 }, Self { tx: Some(tx2), rx: rx1 })
+        (
+            Self {
+                tx: Some(tx1),
+                rx: rx2,
+            },
+            Self {
+                tx: Some(tx2),
+                rx: rx1,
+            },
+        )
     }
 
     /// Does nothing, guaranteeing a drop.
-    pub(crate) fn exit(self) { }
+    pub(crate) fn exit(self) {}
 
     pub(crate) fn wait(&mut self) -> &mut impl Future {
         &mut self.rx

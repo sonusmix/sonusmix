@@ -1,9 +1,7 @@
-use log::{info, debug};
-use pipewire::node::Node;
+use log::debug;
 use pipewire::spa::ReadableDict;
 use pipewire::types::ObjectType;
-use pipewire::{channel as pw_channel, keys::*, properties, Context, Core, MainLoop, Properties};
-use std::borrow::BorrowMut;
+use pipewire::{channel as pw_channel, properties, Context, MainLoop};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -12,7 +10,7 @@ use std::sync::{mpsc as std_channel, Arc};
 use std::thread;
 use tokio::sync::{mpsc as tk_channel, RwLock};
 
-use crate::device::{VirtualDevice, VirtualDeviceKind};
+use crate::device::VirtualDevice;
 use crate::events::{ControllerEvent, PipewireEvent};
 use crate::store::PipewireStore;
 
@@ -32,7 +30,9 @@ impl PipewireController {
             let adapter_tx = adapter_tx.clone();
             move || Self::adapter_thread(adapter_tx, adapter_rx)
         });
-        thread::spawn(move || Self::pipewire_thread(controller_tx, adapter_tx, controller_rx, store));
+        thread::spawn(move || {
+            Self::pipewire_thread(controller_tx, adapter_tx, controller_rx, store)
+        });
         Self {
             tx: return_tx,
             rx: return_rx,
@@ -86,11 +86,10 @@ impl PipewireController {
         // Get factories
         let factory_store = Rc::new(RefCell::new(FactoryStore::new()));
         {
-            let factory_listener = registry
+            let _factory_listener = registry
                 .add_listener_local()
                 .global({
                     let factory_store = factory_store.clone();
-                    let main_loop = main_loop.clone();
                     move |global| {
                         if global.type_ == ObjectType::Factory {
                             if let Some(props) = &global.props {
@@ -110,17 +109,18 @@ impl PipewireController {
         let _rx = rx.attach(&main_loop, {
             let main_loop = main_loop.clone();
             let core = core.clone();
-            let tx = tx.clone();
-            let self_tx = self_tx.clone();
             let store = store.clone();
             let virtual_devices = virtual_devices.clone();
             move |event| match event {
                 ControllerEvent::CreateVirtualDevice(kind, name) => {
                     let mut device = VirtualDevice::new_builder(kind, name);
-                    device.send(&core, self_tx.clone()).expect("Could not create device");
+                    device
+                        .send(&core, self_tx.clone())
+                        .expect("Could not create device");
                     (*virtual_devices).borrow_mut().push(device);
                 }
-                ControllerEvent::RefreshVirtualDevice(id) => store.blocking_write()
+                ControllerEvent::RefreshVirtualDevice(id) => store
+                    .blocking_write()
                     .refresh_virtual_device(id, &(*virtual_devices).borrow()),
                 ControllerEvent::Exit => main_loop.quit(),
             }
@@ -146,7 +146,9 @@ impl PipewireController {
                 debug!("adding object to store");
                 // Throw away the error for now
                 // TODO: Do something with this
-                let _ = store.blocking_write().add_object(global, &(*virtual_devices).borrow());
+                let _ = store
+                    .blocking_write()
+                    .add_object(global, &(*virtual_devices).borrow());
             })
             .register();
 
@@ -211,4 +213,3 @@ impl FactoryStore {
         Self::NEEDED_TYPES.iter().all(|pt| self.0.contains_key(pt))
     }
 }
-

@@ -2,7 +2,7 @@ use std::sync::{mpsc as std_channel, Arc};
 use std::time::Duration;
 
 use events::PipewireEvent;
-use tokio::sync::{mpsc as tk_channel, RwLock, Mutex};
+use tokio::sync::{mpsc as tk_channel, RwLock};
 
 use log::{debug, info};
 
@@ -52,14 +52,12 @@ fn main() {
     })
 }
 
-struct ExitMessage;
-
 /// Listens for and handles commands from clients.
 async fn command_listener(
-        mut exit: ExitSignal,
-        tx: std_channel::Sender<ControllerEvent>,
-        _store: Arc<RwLock<PipewireStore>>,
-    ) {
+    mut exit: ExitSignal,
+    tx: std_channel::Sender<ControllerEvent>,
+    _store: Arc<RwLock<PipewireStore>>,
+) {
     debug!("Hello from command_listener!");
     tokio::time::sleep(Duration::from_secs(2)).await;
     info!("Created virtual sink");
@@ -81,7 +79,8 @@ async fn event_listener(
     debug!("Hello from event_listener!");
     loop {
         tokio::select! {
-            Some(event) = rx.recv() => if let PipewireEvent::NewGlobal(s) = event {
+            Some(event) = rx.recv() => {
+                let PipewireEvent::NewGlobal(s) = event;
                 debug!("{}", s);
             },
             _ = exit.wait() => break,

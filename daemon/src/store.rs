@@ -1,6 +1,6 @@
-use std::{collections::{HashMap, hash_map}};
+use std::collections::{hash_map, HashMap};
 
-use pipewire::{prelude::ReadableDict, keys::*, registry::GlobalObject};
+use pipewire::{keys::*, prelude::ReadableDict, registry::GlobalObject};
 
 use crate::{device::VirtualDevice, error::Error};
 
@@ -29,7 +29,7 @@ impl PipewireStore {
     pub(crate) fn add_object(
         &mut self,
         object: &GlobalObject<impl ReadableDict>,
-        virtual_devices: &[VirtualDevice]
+        virtual_devices: &[VirtualDevice],
     ) -> Result<(), Error> {
         let props = object.props.as_ref().ok_or(Error::MissingProperty(None))?;
         match &object.type_ {
@@ -40,17 +40,26 @@ impl PipewireStore {
         }
     }
 
-    fn add_node(&mut self, id: u32, props: &impl ReadableDict, virtual_devices: &[VirtualDevice]) -> Result<(), Error> {
+    fn add_node(
+        &mut self,
+        id: u32,
+        props: &impl ReadableDict,
+        virtual_devices: &[VirtualDevice],
+    ) -> Result<(), Error> {
         // Create the node
-        let name = props.get(*NODE_NICK)
+        let name = props
+            .get(*NODE_NICK)
             .or_else(|| props.get("node.description"))
             .or_else(|| props.get(*APP_NAME))
-            .or_else(||props.get(*NODE_NAME))
+            .or_else(|| props.get(*NODE_NAME))
             .ok_or(Error::MissingProperty(Some(*NODE_NAME)))?
             .to_string();
 
         // TODO: Maybe improve detection of what is an "application"
-        let kind = if virtual_devices.iter().any(|d| matches!(d.node_id(), Some(nid) if nid == id)) {
+        let kind = if virtual_devices
+            .iter()
+            .any(|d| matches!(d.node_id(), Some(nid) if nid == id))
+        {
             NodeKind::Virtual
         } else if props.get(*APP_NAME).is_some() {
             NodeKind::Application
@@ -73,7 +82,9 @@ impl PipewireStore {
         }
 
         let class = {
-            let mut media_class = props.get(*MEDIA_CLASS).ok_or(Error::MissingProperty(Some(*MEDIA_CLASS)))?
+            let mut media_class = props
+                .get(*MEDIA_CLASS)
+                .ok_or(Error::MissingProperty(Some(*MEDIA_CLASS)))?
                 .to_string();
             if !media_class.contains("Audio") {
                 return Err(Error::NotAudio(media_class));
@@ -81,7 +92,7 @@ impl PipewireStore {
 
             if !media_class.contains('/') {
                 if let Some(category) = props.get(*MEDIA_CATEGORY) {
-                    media_class.push_str("/");
+                    media_class.push('/');
                     media_class.push_str(category);
                 }
             }
@@ -94,7 +105,8 @@ impl PipewireStore {
                 // TODO: The "port.monitor" prop may not be the most reliable way of determining if a port is a monitor.
                 // TODO: All monitor ports seem to be marked as monitors, but some ports that are marked as monitors
                 // TODO: seem to be capture or other kinds of ports.
-                if ports.iter()
+                if ports
+                    .iter()
                     .flat_map(|port_id| self.ports.get(port_id))
                     .any(|port| port.is_monitor)
                 {
@@ -107,20 +119,31 @@ impl PipewireStore {
             }
         };
 
-        self.nodes.insert(id, Node { id, name, kind, class, ports });
+        self.nodes.insert(
+            id,
+            Node {
+                id,
+                name,
+                kind,
+                class,
+                ports,
+            },
+        );
 
         Ok(())
     }
 
     fn add_port(&mut self, id: u32, props: &impl ReadableDict) -> Result<(), Error> {
-        let name = props.get(*PORT_NAME)
+        let name = props
+            .get(*PORT_NAME)
             .ok_or(Error::MissingProperty(Some(*PORT_NAME)))?
             .to_string();
-        
-        let channel = props.get(*AUDIO_CHANNEL)
+
+        let channel = props
+            .get(*AUDIO_CHANNEL)
             .ok_or(Error::MissingProperty(Some(*AUDIO_CHANNEL)))?
             .to_string();
-        
+
         let direction = match props.get(*PORT_DIRECTION) {
             Some("in") => PortDirection::In,
             Some("out") => PortDirection::Out,
@@ -133,11 +156,22 @@ impl PipewireStore {
         // TODO: capture or other kinds of ports.
         let is_monitor = matches!(props.get(*PORT_MONITOR), Some("true"));
 
-        let node = props.get(*NODE_ID)
+        let node = props
+            .get(*NODE_ID)
             .ok_or(Error::MissingProperty(Some(*PORT_MONITOR)))?
             .parse::<u32>()?;
 
-        self.ports.insert(id, Port { id, name, channel, direction, is_monitor, node });
+        self.ports.insert(
+            id,
+            Port {
+                id,
+                name,
+                channel,
+                direction,
+                is_monitor,
+                node,
+            },
+        );
 
         // Check if the node this port belongs to is known. If so, add this port to it, and handle changing its class to
         // SinkMonitor, if applicable. Otherwise, save this port to orphaned_ports.
@@ -148,7 +182,8 @@ impl PipewireStore {
                 node.class = NodeClass::SinkMonitor;
             }
         } else {
-            self.orphan_ports.entry(node)
+            self.orphan_ports
+                .entry(node)
                 .or_insert_with(Vec::new)
                 .push(id);
         }
@@ -158,19 +193,23 @@ impl PipewireStore {
 
     fn add_link(&mut self, id: u32, props: &impl ReadableDict) -> Result<(), Error> {
         let ports = LinkEnds {
-            input: props.get(*LINK_INPUT_PORT)
+            input: props
+                .get(*LINK_INPUT_PORT)
                 .ok_or(Error::MissingProperty(Some(*LINK_INPUT_PORT)))?
                 .parse()?,
-            output: props.get(*LINK_OUTPUT_PORT)
+            output: props
+                .get(*LINK_OUTPUT_PORT)
                 .ok_or(Error::MissingProperty(Some(*LINK_OUTPUT_PORT)))?
                 .parse()?,
         };
 
         let nodes = LinkEnds {
-            input: props.get(*LINK_INPUT_NODE)
+            input: props
+                .get(*LINK_INPUT_NODE)
                 .ok_or(Error::MissingProperty(Some(*LINK_INPUT_NODE)))?
                 .parse()?,
-            output: props.get(*LINK_OUTPUT_NODE)
+            output: props
+                .get(*LINK_OUTPUT_NODE)
                 .ok_or(Error::MissingProperty(Some(*LINK_OUTPUT_NODE)))?
                 .parse()?,
         };
@@ -183,7 +222,11 @@ impl PipewireStore {
     /// Checks a node to see if it should now be a virtual device, and if so, edits it.
     pub(crate) fn refresh_virtual_device(&mut self, id: u32, virtual_devices: &[VirtualDevice]) {
         if let Some(node) = self.nodes.get_mut(&id) {
-            if !matches!(node.kind, NodeKind::Virtual) && virtual_devices.iter().any(|d| matches!(d.node_id(), Some(nid) if nid == id)) {
+            if !matches!(node.kind, NodeKind::Virtual)
+                && virtual_devices
+                    .iter()
+                    .any(|d| matches!(d.node_id(), Some(nid) if nid == id))
+            {
                 node.kind = NodeKind::Virtual;
             }
         }

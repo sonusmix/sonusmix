@@ -189,7 +189,7 @@ impl VirtualDevice {
     pub fn id(&self) -> Result<u32, Error> {
         self.device_link().map(|v| v.id())
     }
-    
+
     /// Get the device's id
     pub fn node_id(&self) -> Option<u32> {
         self.node_id.get().copied()
@@ -203,8 +203,11 @@ impl VirtualDevice {
     ) -> Result<&pipewire::node::Node, Error> {
         match core.create_object::<pipewire::node::Node, _>("adapter", &self.props) {
             Ok(n) => {
-                let n = self.device.try_insert(n).map_err(|_| Error::DeviceAlreadyCreated)?;
-                
+                let n = self
+                    .device
+                    .try_insert(n)
+                    .map_err(|_| Error::DeviceAlreadyCreated)?;
+
                 self.listener.set(
                     n.add_listener_local()
                     .info({
@@ -222,9 +225,9 @@ impl VirtualDevice {
                 )
                     .map_err(|_| ())
                     .expect("running send() twice should already have been caught at self.device.try_insert() above");
-                
+
                 Ok(n)
-            },
+            }
             Err(e) => Err(Error::Pipewire(e)),
         }
     }
