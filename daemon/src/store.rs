@@ -56,13 +56,13 @@ impl PipewireStore {
             .to_string();
 
         // TODO: Maybe improve detection of what is an "application"
-        let kind = if virtual_devices
+        let kind = if props.get(*APP_NAME).is_some() {
+            NodeKind::Application
+        } else if virtual_devices
             .iter()
             .any(|d| matches!(d.node_id(), Some(nid) if nid == id))
         {
             NodeKind::Virtual
-        } else if props.get(*APP_NAME).is_some() {
-            NodeKind::Application
         } else {
             NodeKind::Device
         };
@@ -219,15 +219,16 @@ impl PipewireStore {
         Ok(())
     }
 
-    /// Checks a node to see if it should now be a virtual device, and if so, edits it.
+    /// Checks a node to see if it should now be a virtual device (or not), and if so, edits it.
     pub(crate) fn refresh_virtual_device(&mut self, id: u32, virtual_devices: &[VirtualDevice]) {
         if let Some(node) = self.nodes.get_mut(&id) {
-            if !matches!(node.kind, NodeKind::Virtual)
-                && virtual_devices
-                    .iter()
-                    .any(|d| matches!(d.node_id(), Some(nid) if nid == id))
-            {
-                node.kind = NodeKind::Virtual;
+            let is_virtual = virtual_devices
+                .iter()
+                .any(|d| matches!(d.node_id(), Some(nid) if nid == id));
+            match node.kind {
+                NodeKind::Device if is_virtual => node.kind = NodeKind::Virtual,
+                NodeKind::Virtual if !is_virtual => node.kind = NodeKind::Device,
+                _ => { },
             }
         }
     }

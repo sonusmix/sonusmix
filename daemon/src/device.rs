@@ -1,6 +1,5 @@
 use crate::{error::Error, events::ControllerEvent};
 use log::debug;
-use once_cell::sync::OnceCell;
 use pipewire::{
     keys::*,
     prelude::WritableDict,
@@ -8,7 +7,7 @@ use pipewire::{
     proxy::{Proxy, ProxyT},
     Properties,
 };
-use std::{fmt, rc::Rc};
+use std::{fmt, rc::Rc, cell::Cell};
 
 /// [MEDIA_CLASS](`pipewire::keys::MEDIA_CLASS`)
 #[derive(Clone, Debug)]
@@ -110,9 +109,9 @@ pub struct VirtualDevice {
     pub props: Properties,
     device_type: VirtualDeviceKind,
     name: String,
-    device: OnceCell<pipewire::node::Node>,
-    listener: OnceCell<pipewire::node::NodeListener>,
-    node_id: Rc<OnceCell<u32>>,
+    device: Option<pipewire::node::Node>,
+    listener: Option<pipewire::node::NodeListener>,
+    node_id: Rc<Cell<Option<u32>>>,
 }
 
 impl VirtualDevice {
@@ -129,9 +128,9 @@ impl VirtualDevice {
             },
             device_type,
             name,
-            device: OnceCell::new(),
-            listener: OnceCell::new(),
-            node_id: Rc::new(OnceCell::new()),
+            device: None,
+            listener: None,
+            node_id: Rc::new(Cell::new(None)),
         }
     }
 
@@ -149,9 +148,9 @@ impl VirtualDevice {
             props,
             device_type,
             name,
-            device: OnceCell::new(),
-            listener: OnceCell::new(),
-            node_id: Rc::new(OnceCell::new()),
+            device: None,
+            listener: None,
+            node_id: Rc::new(Cell::new(None)),
         };
         match device.send(core, refresh_channel) {
             Ok(_) => Ok(device),
@@ -179,7 +178,7 @@ impl VirtualDevice {
 
     /// retrieve the device link (proxy)
     pub fn device_link(&self) -> Result<&Proxy, Error> {
-        match self.device.get() {
+        match &self.device {
             Some(v) => Ok(v.upcast_ref()),
             None => Err(Error::DeviceNotCreated),
         }
@@ -192,7 +191,7 @@ impl VirtualDevice {
 
     /// Get the device's id
     pub fn node_id(&self) -> Option<u32> {
-        self.node_id.get().copied()
+        self.node_id.get()
     }
 
     /// Send to the [Core](pipewire::Core)
@@ -203,18 +202,19 @@ impl VirtualDevice {
     ) -> Result<&pipewire::node::Node, Error> {
         match core.create_object::<pipewire::node::Node, _>("adapter", &self.props) {
             Ok(n) => {
-                let n = self
-                    .device
-                    .try_insert(n)
-                    .map_err(|_| Error::DeviceAlreadyCreated)?;
+                let n = if self.device.is_none() {
+                    self.device = Some(n);
+                    self.device.as_ref().expect("We literally just set self.device to Some")
+                } else {
+                    return Err(Error::DeviceAlreadyCreated);
+                };
 
-                self.listener.set(
-                    n.add_listener_local()
+                self.listener = Some(n.add_listener_local()
                     .info({
                         let node_id = self.node_id.clone();
                         move |node_info| {
                             let id = node_info.id();
-                            let _ = node_id.set(id);
+                            let _ = node_id.set(Some(id));
                             refresh_channel.send(ControllerEvent::RefreshVirtualDevice(id))
                                 .map_err(|_| ())
                                 .expect("Pipewire controller thread hung up unexpectedly");
@@ -222,9 +222,7 @@ impl VirtualDevice {
                         }
                     })
                     .register()
-                )
-                    .map_err(|_| ())
-                    .expect("running send() twice should already have been caught at self.device.try_insert() above");
+                );
 
                 Ok(n)
             }
@@ -236,6 +234,8 @@ impl VirtualDevice {
     /// Can be added again using [send()](VirtualDevice::send()).
     pub fn destroy(&mut self, core: &pipewire::Core) -> Result<pipewire::spa::AsyncSeq, Error> {
         let dev = self.device.take().ok_or(Error::DeviceNotCreated)?;
+        self.node_id.set(None);
+        self.listener = None;
         Ok(core.destroy_object(dev)?)
     }
 }

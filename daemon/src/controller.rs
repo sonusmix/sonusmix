@@ -143,12 +143,16 @@ impl PipewireController {
             .add_listener_local()
             .global(move |global| {
                 let virtual_devices = virtual_devices.clone();
-                debug!("adding object to store");
+                debug!("Adding object to store");
                 // Throw away the error for now
                 // TODO: Do something with this
                 let _ = store
                     .blocking_write()
                     .add_object(global, &(*virtual_devices).borrow());
+            })
+            .global_remove(move |global| {
+                debug!("Removing object from store");
+                // TODO: This
             })
             .register();
 
