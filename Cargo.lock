@@ -2288,7 +2288,6 @@ name = "pulsemeeter-daemon"
 version = "0.1.0"
 dependencies = [
  "log",
- "once_cell",
  "pipewire",
  "simple_logger",
  "thiserror",

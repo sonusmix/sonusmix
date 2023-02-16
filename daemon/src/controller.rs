@@ -1,17 +1,18 @@
-use log::info;
+use log::debug;
 use pipewire::spa::ReadableDict;
 use pipewire::types::ObjectType;
-use pipewire::{channel as pw_channel, keys::*, properties, Context, Core, MainLoop, Properties};
-use std::borrow::BorrowMut;
+use pipewire::{channel as pw_channel, properties, Context, MainLoop};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::mpsc as std_channel;
+use std::sync::{mpsc as std_channel, Arc};
 use std::thread;
-use tokio::sync::mpsc as tk_channel;
+use tokio::sync::{mpsc as tk_channel, RwLock};
 
+use crate::device::VirtualDevice;
 use crate::events::{ControllerEvent, PipewireEvent};
+use crate::store::PipewireStore;
 
 // TODO: Should these fields be private?
 pub(crate) struct PipewireController {
@@ -21,12 +22,17 @@ pub(crate) struct PipewireController {
 
 // TODO: This may not need to be part of a struct
 impl PipewireController {
-    pub(crate) fn start() -> PipewireController {
+    pub(crate) fn start(store: Arc<RwLock<PipewireStore>>) -> PipewireController {
         let (return_tx, adapter_rx) = std_channel::channel();
         let (adapter_tx, controller_rx) = pw_channel::channel();
         let (controller_tx, return_rx) = tk_channel::unbounded_channel(); // TODO: Should this be bounded or unbounded?
-        thread::spawn(move || Self::adapter_thread(adapter_tx, adapter_rx));
-        thread::spawn(move || Self::pipewire_thread(controller_tx, controller_rx));
+        thread::spawn({
+            let adapter_tx = adapter_tx.clone();
+            move || Self::adapter_thread(adapter_tx, adapter_rx)
+        });
+        thread::spawn(move || {
+            Self::pipewire_thread(controller_tx, adapter_tx, controller_rx, store)
+        });
         Self {
             tx: return_tx,
             rx: return_rx,
@@ -57,7 +63,9 @@ impl PipewireController {
 
     fn pipewire_thread(
         tx: tk_channel::UnboundedSender<PipewireEvent>,
+        self_tx: pw_channel::Sender<ControllerEvent>,
         rx: pw_channel::Receiver<ControllerEvent>,
+        store: Arc<RwLock<PipewireStore>>,
     ) {
         let main_loop = MainLoop::new().expect("Failed to create pipewire main loop");
         let context = Context::with_properties(
@@ -73,14 +81,15 @@ impl PipewireController {
             .get_registry()
             .expect("Could not get pipewire registry");
 
+        let virtual_devices: Rc<RefCell<Vec<VirtualDevice>>> = Rc::new(RefCell::new(Vec::new()));
+
         // Get factories
-        let mut factory_store = Rc::new(RefCell::new(FactoryStore::new()));
+        let factory_store = Rc::new(RefCell::new(FactoryStore::new()));
         {
-            let factory_listener = registry
+            let _factory_listener = registry
                 .add_listener_local()
                 .global({
                     let factory_store = factory_store.clone();
-                    let main_loop = main_loop.clone();
                     move |global| {
                         if global.type_ == ObjectType::Factory {
                             if let Some(props) = &global.props {
@@ -100,8 +109,21 @@ impl PipewireController {
         let _rx = rx.attach(&main_loop, {
             let main_loop = main_loop.clone();
             let core = core.clone();
-            let tx = tx.clone();
-            move |event| Self::handle_controller_event(event, &main_loop, &core, &tx)
+            let store = store.clone();
+            let virtual_devices = virtual_devices.clone();
+            move |event| match event {
+                ControllerEvent::CreateVirtualDevice(kind, name) => {
+                    let mut device = VirtualDevice::new_builder(kind, name);
+                    device
+                        .send(&core, self_tx.clone())
+                        .expect("Could not create device");
+                    (*virtual_devices).borrow_mut().push(device);
+                }
+                ControllerEvent::RefreshVirtualDevice(id) => store
+                    .blocking_write()
+                    .refresh_virtual_device(id, &(*virtual_devices).borrow()),
+                ControllerEvent::Exit => main_loop.quit(),
+            }
         });
 
         let _listener = registry
@@ -116,34 +138,25 @@ impl PipewireController {
             })
             .register();
 
-        main_loop.run();
-    }
+        // Add new objects to the store
+        let _store_listener = registry
+            .add_listener_local()
+            .global(move |global| {
+                let virtual_devices = virtual_devices.clone();
+                debug!("Adding object to store");
+                // Throw away the error for now
+                // TODO: Do something with this
+                let _ = store
+                    .blocking_write()
+                    .add_object(global, &(*virtual_devices).borrow());
+            })
+            .global_remove(move |global| {
+                debug!("Removing object from store");
+                // TODO: This
+            })
+            .register();
 
-    fn handle_controller_event(
-        event: ControllerEvent,
-        main_loop: &MainLoop,
-        core: &Core,
-        channel: &tk_channel::UnboundedSender<PipewireEvent>,
-    ) {
-        // TODO: It might be better to merge this into pipewire_thread().
-        match event {
-            ControllerEvent::CreateSink(s) => {
-                std::mem::forget(
-                    core.create_object::<pipewire::node::Node, _>(
-                        "adapter",
-                        &properties! {
-                            *FACTORY_NAME => "support.null-audio-sink",
-                            *NODE_NAME => s,
-                            *MEDIA_CLASS => "Audio/Sink",
-                            *OBJECT_LINGER => "false",
-                            "audio.position" => "[FL FR]",
-                        },
-                    )
-                    .expect("Could not create sink"),
-                );
-            }
-            ControllerEvent::Exit => main_loop.quit(),
-        }
+        main_loop.run();
     }
 }
 
@@ -204,4 +217,3 @@ impl FactoryStore {
         Self::NEEDED_TYPES.iter().all(|pt| self.0.contains_key(pt))
     }
 }
-
