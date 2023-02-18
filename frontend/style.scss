@@ -1,0 +1,14 @@
+// $dark-card-background-color: green;
+
+// @import "~@blueprintjs/colors/lib/scss/colors.scss";
+
+// $dark-card-background-color: $dark-gray3;
+
+@import "~@blueprintjs/core/src/blueprint.scss";
+
+// @use "~@blueprintjs/core/src/blueprint.scss";
+
+:root:has(> * > .bp3-dark) {
+    color: #f6f6f6;
+    background-color: #2f2f2f;
+}
