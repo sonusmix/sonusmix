@@ -63,7 +63,7 @@ async fn command_listener(
     info!("Created virtual sink");
     tx.send(ControllerEvent::CreateVirtualDevice(
         device::VirtualDeviceKind::Sink,
-        "pulsemeeter-daemon".to_string(),
+        "sonusmix-daemon".to_string(),
     ))
     .unwrap();
     exit.wait().await;

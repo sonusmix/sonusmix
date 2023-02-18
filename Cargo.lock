@@ -2284,40 +2284,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pulsemeeter-daemon"
-version = "0.1.0"
-dependencies = [
- "log",
- "pipewire",
- "simple_logger",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "pulsemeeter-frontend"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
-]
-
-[[package]]
-name = "pulsemeeter-frontend-ui"
-version = "0.0.0"
-dependencies = [
- "js-sys",
- "serde",
- "serde-wasm-bindgen",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "yew",
-]
-
-[[package]]
 name = "quick-xml"
 version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2786,6 +2752,40 @@ checksum = "02e2d2db9033d13a1567121ddd7a095ee144db4e1ca1b1bda3419bc0da294ebd"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "somusmix-frontend-ui"
+version = "0.0.0"
+dependencies = [
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "yew",
+]
+
+[[package]]
+name = "sonusmix-daemon"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "pipewire",
+ "simple_logger",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "sonusmix-frontend"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
 ]
 
 [[package]]
