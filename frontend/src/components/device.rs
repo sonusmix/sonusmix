@@ -3,7 +3,7 @@ use implicit_clone::unsync::IArray;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 use stylist::css;
-use yewprint::{Card, Elevation, Text, Slider};
+use yewprint::{Card, Elevation, Text, Slider, Intent};
 
 use super::ToggleButton;
 
@@ -50,17 +50,19 @@ pub fn device(props: &Props) -> Html {
                 <Text class="bp3-heading" >{ &props.device_name }</Text>
                 <div
                     onmousedown={ |e: MouseEvent| e.prevent_default() }
+                    class={ css!("> * > * > .bp3-slider-progress.bp3-intent-primary { background-color: ${color}; }", color=color.to_hex_string()) }
                 >
                     <Slider<u32>
                         onchange={ slider_onchange }
                         values={ (0..=100).map(|i| (i, None)).collect::<Vec<_>>() }
                         selected={ *volume }
                         value_label={ format!("{}%", *volume) }
+                        intent={ Intent::Primary }
                     />
                 </div>
                 {
                     props.buttons.iter().map(|text| {
-                        html! { <ToggleButton onchange={ |_| () }>{ text }</ToggleButton> }
+                        html! { <ToggleButton active_color={ (*color).clone() } onchange={ |_| () }>{ text }</ToggleButton> }
                     }).collect::<Html>()
                 }
                 <input type="color" value={ color.to_hex_string() } oninput={ color_picker_change } class={ css!(float: right;) } />

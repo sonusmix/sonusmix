@@ -5,8 +5,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 use csscolorparser::Color;
+use stylist::css;
 
-use crate::components::Device;
+use crate::components::{Device, SplitPanes};
 
 #[wasm_bindgen]
 extern "C" {
@@ -25,15 +26,41 @@ struct GreetArgs<'a> {
 #[function_component(App)]
 pub fn app() -> Html {
 
-    let button_names = ["Headset", "Headphones", "Speakers"].into_iter()
+    let input_devices = ["Headset Mic", "Webcam Mic", "Discord"].into_iter()
+        .map(AttrValue::from)
+        .collect::<IArray<AttrValue>>();
+
+    let output_devices = ["Headset", "Headphones", "Speakers", "Discord"].into_iter()
         .map(AttrValue::from)
         .collect::<IArray<AttrValue>>();
 
     html! {
-        <main class="container bp3-dark">
-            <Device device_name="Headset Mic" buttons={ button_names.clone() } color={ Color::new(0.0, 0.0, 0.0, 1.0) } />
-            <Device device_name="Webcam Mic" buttons={ button_names.clone() } color={ Color::new(0.0, 0.0, 0.0, 1.0) } />
-            <Device device_name="Discord" buttons={ button_names.clone() } color={ Color::new(0.345, 0.396, 0.949, 1.0) } />
+        <main class={ classes!("container", "bp3-dark", css!(height: 100%;)) }>
+            <SplitPanes
+                class={ css!(height: 100%;) }
+                left_children={ input_devices.iter()
+                    .map(|name| {
+                        html! { <Device device_name={ name.clone() } buttons={ output_devices.clone() } color={ if name == "Discord" {
+                                Color::new(0.345, 0.396, 0.949, 1.0)
+                            } else {
+                                Color::new(0.0, 0.0, 0.0, 1.0)
+                            }
+                        } /> }
+                    })
+                    .collect::<Html>()
+                }
+                right_children={ output_devices.iter()
+                    .map(|name| {
+                        html! { <Device device_name={ name.clone() } buttons={ input_devices.clone() } color={ if name == "Discord" {
+                                Color::new(0.345, 0.396, 0.949, 1.0)
+                            } else {
+                                Color::new(0.0, 0.0, 0.0, 1.0)
+                            }
+                        } /> }
+                    })
+                    .collect::<Html>()
+                }
+            />
         </main>
     }
 }

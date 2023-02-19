@@ -1,14 +1,30 @@
 // $dark-card-background-color: green;
 
-// @import "~@blueprintjs/colors/lib/scss/colors.scss";
+@import "~@blueprintjs/core/src/common/colors";
 
-// $dark-card-background-color: $dark-gray3;
+// $dark-card-background-color: $green1;
 
 @import "~@blueprintjs/core/src/blueprint.scss";
 
-// @use "~@blueprintjs/core/src/blueprint.scss";
+:root {
+    background-color: $pt-app-background-color;
+    color: $pt-text-color;
+    --ui-recessed-color: #{rgba($gray1, 0.5)};
+    height: 100%;
+}
 
 :root:has(> * > .bp3-dark) {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+    // color: #f6f6f6;
+    // background-color: #2f2f2f;
+    color: $pt-dark-text-color;
+    background-color: $pt-dark-app-background-color;
+    --ui-recessed-color: #{rgba($black, 0.5)};
 }
+
+body {
+    height: 100%;
+    margin: 0px;
+    padding: 10px;
+}
+
+// @use "~@blueprintjs/core/src/blueprint.scss";

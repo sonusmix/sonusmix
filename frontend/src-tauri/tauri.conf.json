@@ -60,10 +60,10 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 600,
+        "height": 800,
         "resizable": true,
-        "title": "frontend",
-        "width": 800
+        "title": "SonusMix",
+        "width": 1200
       }
     ]
   }

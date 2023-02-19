@@ -2480,7 +2480,7 @@ version = "0.0.0"
 dependencies = [
  "csscolorparser",
  "flate2",
- "gloo-console",
+ "gloo",
  "grass",
  "implicit-clone",
  "js-sys",
