@@ -7,7 +7,7 @@ use yew::prelude::*;
 use csscolorparser::Color;
 use stylist::css;
 
-use crate::components::{Device, SplitPanes};
+use crate::components::{Device, Panes};
 
 #[wasm_bindgen]
 extern "C" {
@@ -36,8 +36,9 @@ pub fn app() -> Html {
 
     html! {
         <main class={ classes!("container", "bp3-dark", css!(height: 100%;)) }>
-            <SplitPanes
+            <Panes
                 class={ css!(height: 100%;) }
+                left_title="Input Devices"
                 left_children={ input_devices.iter()
                     .map(|name| {
                         html! { <Device device_name={ name.clone() } buttons={ output_devices.clone() } color={ if name == "Discord" {
@@ -49,6 +50,7 @@ pub fn app() -> Html {
                     })
                     .collect::<Html>()
                 }
+                right_title="Output Devices"
                 right_children={ output_devices.iter()
                     .map(|name| {
                         html! { <Device device_name={ name.clone() } buttons={ input_devices.clone() } color={ if name == "Discord" {

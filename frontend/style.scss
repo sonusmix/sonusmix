@@ -9,6 +9,7 @@
 :root {
     background-color: $pt-app-background-color;
     color: $pt-text-color;
+    --ui-text-color: #{$pt-text-color};
     --ui-recessed-color: #{rgba($gray1, 0.5)};
     height: 100%;
 }
@@ -18,6 +19,7 @@
     // background-color: #2f2f2f;
     color: $pt-dark-text-color;
     background-color: $pt-dark-app-background-color;
+    --ui-text-color: #{$pt-dark-text-color};
     --ui-recessed-color: #{rgba($black, 0.5)};
 }
 
