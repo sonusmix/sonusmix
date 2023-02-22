@@ -1,10 +1,8 @@
+use iced::{Application, Settings};
 mod app;
 mod components;
-mod utils;
-
-use app::App;
+mod theme;
 
 fn main() {
-    wasm_logger::init(wasm_logger::Config::default());
-    yew::Renderer::<App>::new().render();
+    app::AppContainer::run(Settings::default()).expect("Unable to run application");
 }

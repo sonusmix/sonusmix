@@ -1,68 +1,64 @@
-use implicit_clone::unsync::IArray;
-use serde::{Deserialize, Serialize};
-use serde_wasm_bindgen::to_value;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::spawn_local;
-use yew::prelude::*;
-use csscolorparser::Color;
-use stylist::css;
+use crate::components::device::HardwareSource;
+use crate::components::device_container::DeviceContainer;
+use crate::theme::Theme;
+use iced::{
+    application, executor,
+    widget::{column, container, Button, Container, Row},
+    Application, Command, Length, Renderer,
+};
 
-use crate::components::{Device, Panes};
+#[derive(Debug, Clone)]
+pub enum Message {}
 
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "tauri"])]
-    async fn invoke(cmd: &str, args: JsValue) -> JsValue;
-
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
+/// This is the main application container
+pub struct AppContainer {
+    device_container: DeviceContainer,
 }
 
-#[derive(Serialize, Deserialize)]
-struct GreetArgs<'a> {
-    name: &'a str,
+#[derive(Default, Debug, Copy, Clone)]
+pub enum AppContainerStyle {
+    #[default]
+    Regular,
 }
 
-#[function_component(App)]
-pub fn app() -> Html {
+impl application::StyleSheet for Theme {
+    type Style = AppContainerStyle;
 
-    let input_devices = ["Headset Mic", "Webcam Mic", "Discord"].into_iter()
-        .map(AttrValue::from)
-        .collect::<IArray<AttrValue>>();
+    fn appearance(&self, style: &Self::Style) -> application::Appearance {
+        application::Appearance {
+            background_color: self.palette().background,
+            text_color: self.palette().foreground,
+        }
+    }
+}
 
-    let output_devices = ["Headset", "Headphones", "Speakers", "Discord"].into_iter()
-        .map(AttrValue::from)
-        .collect::<IArray<AttrValue>>();
+impl Application for AppContainer {
+    type Theme = Theme;
+    type Executor = executor::Default;
+    type Message = Message;
+    type Flags = ();
 
-    html! {
-        <main class={ classes!("container", "bp3-dark", css!(height: 100%;)) }>
-            <Panes
-                class={ css!(height: 100%;) }
-                left_title="Input Devices"
-                left_children={ input_devices.iter()
-                    .map(|name| {
-                        html! { <Device device_name={ name.clone() } buttons={ output_devices.clone() } color={ if name == "Discord" {
-                                Color::new(0.345, 0.396, 0.949, 1.0)
-                            } else {
-                                Color::new(0.0, 0.0, 0.0, 1.0)
-                            }
-                        } /> }
-                    })
-                    .collect::<Html>()
-                }
-                right_title="Output Devices"
-                right_children={ output_devices.iter()
-                    .map(|name| {
-                        html! { <Device device_name={ name.clone() } buttons={ input_devices.clone() } color={ if name == "Discord" {
-                                Color::new(0.345, 0.396, 0.949, 1.0)
-                            } else {
-                                Color::new(0.0, 0.0, 0.0, 1.0)
-                            }
-                        } /> }
-                    })
-                    .collect::<Html>()
-                }
-            />
-        </main>
+    fn new(_flags: ()) -> (Self, Command<Self::Message>) {
+        (
+            AppContainer {
+                device_container: DeviceContainer::new(Vec::from([
+                    HardwareSource::new(String::from("SOURCE 1")),
+                    HardwareSource::new(String::from("SOURCE 2")),
+                ])),
+            },
+            Command::none(),
+        )
+    }
+
+    fn title(&self) -> String {
+        String::from("Sonusmix")
+    }
+
+    fn update(&mut self, _message: Self::Message) -> Command<Self::Message> {
+        Command::none()
+    }
+
+    fn view(&self) -> iced::Element<Self::Message, Renderer<Self::Theme>> {
+        container(self.device_container.view()).into()
     }
 }
