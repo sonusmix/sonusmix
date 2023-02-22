@@ -1,5 +1,5 @@
+use iced::widget::{button, container, text};
 use iced::{color, Color};
-use iced::widget::{container, button, text};
 
 // This file is mainly a wrapper around the standard Appearance to support own customizations
 
@@ -50,7 +50,7 @@ impl container::StyleSheet for Theme {
 #[derive(Default, Debug, Clone, Copy)]
 pub enum Button {
     #[default]
-    Default
+    Default,
 }
 
 impl button::StyleSheet for Theme {
@@ -58,7 +58,7 @@ impl button::StyleSheet for Theme {
 
     fn active(&self, style: &Self::Style) -> button::Appearance {
         match style {
-            Button::Default => button::Appearance::default()
+            Button::Default => button::Appearance::default(),
         }
     }
 }
@@ -66,7 +66,7 @@ impl button::StyleSheet for Theme {
 #[derive(Default, Debug, Clone, Copy)]
 pub enum Text {
     #[default]
-    Default
+    Default,
 }
 
 impl text::StyleSheet for Theme {

@@ -21,18 +21,17 @@ impl DeviceContainer {
     }
 
     pub fn view(&self) -> Element<Message, Renderer<theme::Theme>> {
-        column![
-            container(
-                column(
-                    self.devices
-                        .iter()
-                        .map(|device| device.view().into())
-                        .collect::<Vec<Element<Message, Renderer<theme::Theme>>>>(),
-                )
-                .spacing(20)
+        column![container(
+            column(
+                self.devices
+                    .iter()
+                    .map(|device| device.view().into())
+                    .collect::<Vec<Element<Message, Renderer<theme::Theme>>>>(),
             )
-            .padding(10)
-            .style(theme::Container::Border)
-        ].into()
+            .spacing(20)
+        )
+        .padding(10)
+        .style(theme::Container::Border)]
+        .into()
     }
 }
