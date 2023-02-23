@@ -10,16 +10,23 @@ pub enum Theme {
 }
 
 pub struct ColorBase {
-    pub background: iced::Color,
-    pub foreground: iced::Color,
+    pub background: Color,
+    pub foreground: Color,
+
+    pub primary: Color,
+    pub secondary: Color,
+    pub secondary_low: Color,
 }
 
 impl Theme {
     pub fn palette(&self) -> ColorBase {
         match self {
             Self::Dark => ColorBase {
-                background: color!(0x636e72),
-                foreground: color!(0xdfe6e9),
+                background: color!(0x404258),
+                foreground: color!(0x474E68),
+                primary: color!(0x6B728E),
+                secondary: color!(0x50577A),
+                secondary_low: Color::from_rgba(80.0, 87.0, 122.0, 50.0),
             },
         }
     }
