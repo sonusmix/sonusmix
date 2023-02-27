@@ -1,6 +1,5 @@
-use crate::components::device::HardwareSource;
-use crate::components::device_container::DeviceContainer;
 use crate::components::grid::Grid;
+use crate::components::{application_container, hardware_container, virtual_container};
 use crate::theme::Theme;
 use iced::{application, executor, widget::container, Application, Command, Renderer};
 
@@ -9,10 +8,11 @@ pub enum Message {}
 
 /// This is the main application container
 pub struct AppContainer {
-    device_container1: DeviceContainer,
-    device_container2: DeviceContainer,
-    device_container3: DeviceContainer,
-    device_container4: DeviceContainer,
+    hardware_source: hardware_container::HardwareSource,
+    hardware_sink: hardware_container::HardwareSink,
+    application_source: application_container::ApplicationSource,
+    application_sink: application_container::ApplicationSink,
+    virtual_sink_source: virtual_container::Virtual,
 }
 
 #[derive(Default, Debug, Copy, Clone)]
@@ -41,22 +41,11 @@ impl Application for AppContainer {
     fn new(_flags: ()) -> (Self, Command<Self::Message>) {
         (
             AppContainer {
-                device_container1: DeviceContainer::new(Vec::from([
-                    HardwareSource::new(String::from("CONTAINER 1")),
-                    HardwareSource::new(String::from("SOURCE 2")),
-                ])),
-                device_container2: DeviceContainer::new(Vec::from([
-                    HardwareSource::new(String::from("CONTAINER 2")),
-                    HardwareSource::new(String::from("SOURCE 2")),
-                ])),
-                device_container3: DeviceContainer::new(Vec::from([
-                    HardwareSource::new(String::from("CONTAINER 3")),
-                    HardwareSource::new(String::from("SOURCE 2")),
-                ])),
-                device_container4: DeviceContainer::new(Vec::from([
-                    HardwareSource::new(String::from("CONTAINER 4")),
-                    HardwareSource::new(String::from("SOURCE 2")),
-                ])),
+                hardware_source: hardware_container::HardwareSource::new(),
+                hardware_sink: hardware_container::HardwareSink::new(),
+                application_source: application_container::ApplicationSource::new(),
+                application_sink: application_container::ApplicationSink::new(),
+                virtual_sink_source: virtual_container::Virtual::new(),
             },
             Command::none(),
         )
@@ -72,10 +61,11 @@ impl Application for AppContainer {
 
     fn view(&self) -> iced::Element<Self::Message, Renderer<Self::Theme>> {
         container(Grid::new([
-            self.device_container1.view(),
-            self.device_container2.view(),
-            self.device_container3.view(),
-            self.device_container4.view(),
+            self.hardware_source.view(),
+            self.hardware_sink.view(),
+            self.application_source.view(),
+            self.virtual_sink_source.view(),
+            self.application_sink.view(),
         ]))
         .into()
     }

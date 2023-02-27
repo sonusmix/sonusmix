@@ -47,7 +47,7 @@ impl container::StyleSheet for Theme {
             Container::Default => container::Appearance::default(),
             Container::Border => container::Appearance {
                 border_width: 3.0,
-                border_color: Color::from(self.palette().foreground),
+                border_color: self.palette().foreground,
                 ..container::Appearance::default()
             },
         }
@@ -81,7 +81,9 @@ impl text::StyleSheet for Theme {
 
     fn appearance(&self, style: Self::Style) -> text::Appearance {
         match style {
-            Text::Default => text::Appearance::default(),
+            Text::Default => text::Appearance {
+                color: Some(self.palette().primary),
+            },
         }
     }
 }

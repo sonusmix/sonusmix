@@ -3,14 +3,14 @@ use iced_native::{widget::Tree, Element, Widget};
 
 /// A contaier that holds a 2:2 grid on fullscreen that gives all elements equal space
 pub struct Grid<'a, Message, Renderer> {
-    elements: [Element<'a, Message, Renderer>; 4],
+    elements: [Element<'a, Message, Renderer>; 5],
 }
 
 impl<'a, Message, Renderer> Grid<'a, Message, Renderer>
 where
     Renderer: iced_native::Renderer,
 {
-    pub fn new(elements: [Element<'a, Message, Renderer>; 4]) -> Self {
+    pub fn new(elements: [Element<'a, Message, Renderer>; 5]) -> Self {
         Grid { elements }
     }
 }
@@ -37,20 +37,24 @@ where
         limits: &iced_native::layout::Limits,
     ) -> iced_native::layout::Node {
         let container_size = limits.max();
-        let width = container_size.width / 2.0;
-        let height = container_size.height / 2.0;
+        let width = container_size.width;
+        let height = container_size.height;
 
         let mut nodes = Vec::with_capacity(self.elements.len());
 
-        let element_size_limit = limits
-            .width(Length::Fixed(width))
-            .height(Length::Fixed(height));
+        let top_size_limit = limits
+            .width(Length::Fixed(width / 2.0))
+            .height(Length::Fixed(height / 2.0));
+
+        let bottom_size_limit = limits
+            .width(Length::Fixed(width / 3.0))
+            .height(Length::Fixed(height / 2.0));
 
         // Top left (0)
         {
             let mut node = self.elements[0]
                 .as_widget()
-                .layout(renderer, &element_size_limit);
+                .layout(renderer, &top_size_limit);
             node.move_to(Point::new(0.0, 0.0));
             nodes.push(node);
         }
@@ -58,24 +62,32 @@ where
         {
             let mut node = self.elements[1]
                 .as_widget()
-                .layout(renderer, &element_size_limit);
-            node.move_to(Point::new(width, 0.0));
+                .layout(renderer, &top_size_limit);
+            node.move_to(Point::new(width / 2.0, 0.0));
             nodes.push(node);
         }
         // Bottom left (2)
         {
             let mut node = self.elements[2]
                 .as_widget()
-                .layout(renderer, &element_size_limit);
-            node.move_to(Point::new(0.0, height));
+                .layout(renderer, &bottom_size_limit);
+            node.move_to(Point::new(0.0, height / 2.0));
             nodes.push(node);
         }
-        // Bottom right (3)
+        // Bottom middle (3)
         {
             let mut node = self.elements[3]
                 .as_widget()
-                .layout(renderer, &element_size_limit);
-            node.move_to(Point::new(width, height));
+                .layout(renderer, &bottom_size_limit);
+            node.move_to(Point::new(width / 3.0, height / 2.0));
+            nodes.push(node);
+        }
+        // Bottom right (4)
+        {
+            let mut node = self.elements[4]
+                .as_widget()
+                .layout(renderer, &bottom_size_limit);
+            node.move_to(Point::new(width / 3.0 * 2.0, height / 2.0));
             nodes.push(node);
         }
 
