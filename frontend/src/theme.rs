@@ -1,4 +1,4 @@
-use iced::widget::{button, container, text};
+use iced::widget::{button, container, text, pane_grid};
 use iced::{color, Color};
 
 // This file is mainly a wrapper around the standard Appearance to support own customizations
@@ -85,5 +85,23 @@ impl text::StyleSheet for Theme {
                 color: Some(self.palette().primary),
             },
         }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub enum PaneGrid {
+    #[default]
+    Default,
+}
+
+impl pane_grid::StyleSheet for Theme {
+    type Style = PaneGrid;
+
+    fn picked_split(&self, style: &Self::Style) -> Option<pane_grid::Line> {
+        None
+    }
+
+    fn hovered_split(&self, style: &Self::Style) -> Option<pane_grid::Line> {
+        None
     }
 }

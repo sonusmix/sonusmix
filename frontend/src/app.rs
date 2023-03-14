@@ -1,18 +1,16 @@
-use crate::components::grid::Grid;
-use crate::components::{application_container, hardware_container, virtual_container};
-use crate::theme::Theme;
+use crate::theme::{Theme, self};
+use iced::Length;
+use iced::widget::{PaneGrid, pane_grid, text};
 use iced::{application, executor, widget::container, Application, Command, Renderer};
 
 #[derive(Debug, Clone)]
-pub enum Message {}
+pub enum Message {
+    GridResize(pane_grid::ResizeEvent),
+}
 
 /// This is the main application container
 pub struct AppContainer {
-    hardware_source: hardware_container::HardwareSource,
-    hardware_sink: hardware_container::HardwareSink,
-    application_source: application_container::ApplicationSource,
-    application_sink: application_container::ApplicationSink,
-    virtual_sink_source: virtual_container::Virtual,
+    panes: pane_grid::State<&'static str>,
 }
 
 #[derive(Default, Debug, Copy, Clone)]
@@ -39,13 +37,30 @@ impl Application for AppContainer {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Command<Self::Message>) {
+        use iced::widget::pane_grid::{State, Configuration, Axis};
         (
             AppContainer {
-                hardware_source: hardware_container::HardwareSource::new(),
-                hardware_sink: hardware_container::HardwareSink::new(),
-                application_source: application_container::ApplicationSource::new(),
-                application_sink: application_container::ApplicationSink::new(),
-                virtual_sink_source: virtual_container::Virtual::new(),
+                panes: State::with_configuration(Configuration::Split {
+                    axis: Axis::Horizontal,
+                    ratio: 0.5,
+                    a: Box::new(Configuration::Split {
+                        axis: Axis::Vertical,
+                        ratio: 0.5,
+                        a: Box::new(Configuration::Pane("MICROPHONE / HARDWARE SOURCE")),
+                        b: Box::new(Configuration::Pane("HARDWARE SINK")),
+                    }),
+                    b: Box::new(Configuration::Split {
+                        axis: Axis::Vertical,
+                        ratio: 1.0 / 3.0,
+                        a: Box::new(Configuration::Pane("APPLICATION SOURCE (PLAYBACK)")),
+                        b: Box::new(Configuration::Split {
+                            axis: Axis::Vertical,
+                            ratio: 0.5,
+                            a: Box::new(Configuration::Pane("VIRTUAL DEVICES")),
+                            b: Box::new(Configuration::Pane("APPLICATION SINK (RECORDING)")),
+                        }),
+                    }),
+                })
             },
             Command::none(),
         )
@@ -55,18 +70,33 @@ impl Application for AppContainer {
         String::from("Sonusmix")
     }
 
-    fn update(&mut self, _message: Self::Message) -> Command<Self::Message> {
+    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
+        match message {
+            Message::GridResize(pane_grid::ResizeEvent { split, ratio }) => {
+                self.panes.resize(&split, ratio);
+            },
+        }
         Command::none()
     }
 
     fn view(&self) -> iced::Element<Self::Message, Renderer<Self::Theme>> {
-        container(Grid::new([
-            self.hardware_source.view(),
-            self.hardware_sink.view(),
-            self.application_source.view(),
-            self.virtual_sink_source.view(),
-            self.application_sink.view(),
-        ]))
-        .into()
+        PaneGrid::new(&self.panes, |id, pane, _is_maximized| {
+            pane_grid::Content::new(container(text(pane))
+                .padding(10)
+                .height(Length::Fill)
+                .width(Length::Fill)
+                .style(theme::Container::Border)
+            )
+        })
+            .on_resize(10, Message::GridResize)
+            .into()
+        // container(Grid::new([
+        //     HardwareSource::new().view(),
+        //     HardwareSink::new().view(),
+        //     ApplicationSource::new().view(),
+        //     Virtual::new().view(),
+        //     ApplicationSink::new().view(),
+        // ], GridSplit::default()))
+        // .into()
     }
 }
