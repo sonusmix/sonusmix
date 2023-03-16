@@ -1,4 +1,4 @@
-use iced::widget::{button, container, text, pane_grid};
+use iced::widget::{button, container, text, pane_grid, toggler, slider};
 use iced::{color, Color};
 
 // This file is mainly a wrapper around the standard Appearance to support own customizations
@@ -103,5 +103,89 @@ impl pane_grid::StyleSheet for Theme {
 
     fn hovered_split(&self, style: &Self::Style) -> Option<pane_grid::Line> {
         None
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub enum Slider {
+    #[default]
+    Default,
+}
+
+impl slider::StyleSheet for Theme {
+    type Style = Slider;
+
+    fn active(&self, style: &Self::Style) -> iced::widget::vertical_slider::Appearance {
+        match style {
+            Slider::Default => slider::Appearance {
+                rail_colors: (Color::from_rgb(1.0, 0.0, 0.0), Color::from_rgb(0.0, 1.0, 0.0)),
+                handle: slider::Handle {
+                    shape: slider::HandleShape::Circle { radius: 10.0 },
+                    color: Color::from_rgb(0.0, 0.0, 1.0),
+                    border_width: 0.0,
+                    border_color: Color::TRANSPARENT,
+                },
+            }
+        }
+    }
+
+    fn hovered(&self, style: &Self::Style) -> iced::widget::vertical_slider::Appearance {
+        match style {
+            Slider::Default => slider::Appearance {
+                rail_colors: (Color::from_rgb(1.0, 0.0, 0.0), Color::from_rgb(0.0, 1.0, 0.0)),
+                handle: slider::Handle {
+                    shape: slider::HandleShape::Circle { radius: 10.0 },
+                    color: Color::from_rgb(0.0, 0.0, 1.0),
+                    border_width: 0.0,
+                    border_color: Color::TRANSPARENT,
+                },
+            }
+        }
+    }
+
+    fn dragging(&self, style: &Self::Style) -> iced::widget::vertical_slider::Appearance {
+        match style {
+            Slider::Default => slider::Appearance {
+                rail_colors: (Color::from_rgb(1.0, 0.0, 0.0), Color::from_rgb(0.0, 1.0, 0.0)),
+                handle: slider::Handle {
+                    shape: slider::HandleShape::Circle { radius: 10.0 },
+                    color: Color::from_rgb(0.0, 0.0, 1.0),
+                    border_width: 0.0,
+                    border_color: Color::TRANSPARENT,
+                },
+            }
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub enum Toggler {
+    #[default]
+    Default,
+}
+
+impl toggler::StyleSheet for Theme {
+    type Style = Toggler;
+
+    fn active(&self, style: &Self::Style, is_active: bool) -> toggler::Appearance {
+        match style {
+            Toggler::Default => toggler::Appearance {
+                background: self.palette().primary,
+                background_border: None,
+                foreground: self.palette().foreground,
+                foreground_border: None,
+            },
+        }
+    }
+
+    fn hovered(&self, style: &Self::Style, is_active: bool) -> toggler::Appearance {
+        match style {
+            Toggler::Default => toggler::Appearance {
+                background: self.palette().secondary,
+                background_border: None,
+                foreground: self.palette().foreground,
+                foreground_border: None,
+            },
+        }
     }
 }
