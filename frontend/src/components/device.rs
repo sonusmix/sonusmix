@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use iced::{Element, widget::{column, Row, text, slider, toggler}};
+use iced::{Element, widget::{column, Row, text, slider, checkbox}};
 
 #[derive(Debug, Clone)]
 pub struct State {
@@ -49,13 +49,13 @@ where
     where
         Message: 'a + Clone,
         Renderer: 'a + iced_native::text::Renderer,
-        <Renderer as iced_native::Renderer>::Theme: text::StyleSheet + slider::StyleSheet + toggler::StyleSheet,
+        <Renderer as iced_native::Renderer>::Theme: text::StyleSheet + slider::StyleSheet + checkbox::StyleSheet,
     {
         column![
             text(&self.state.name),
             slider(0..=100, self.state.volume, self.on_volume_change_fn),
             <Element<_, _>>::from(Row::with_children(self.state.connections.iter().map(|(name, is_active)|
-                toggler(Some(name.clone()), *is_active, move |s| (name, s)).into()
+                checkbox(name.clone(), *is_active, move |s| (name, s)).into()
             ).collect()))
                 .map(move |(name, s)| (self.on_connection_change_fn)(name, s)),
         ]
@@ -69,7 +69,7 @@ where
     Fcc: 'a + Fn(&str, bool) -> Message,
     Message: 'a + Clone,
     Renderer: 'a + iced_native::text::Renderer,
-    <Renderer as iced_native::Renderer>::Theme: text::StyleSheet + slider::StyleSheet + toggler::StyleSheet,
+    <Renderer as iced_native::Renderer>::Theme: text::StyleSheet + slider::StyleSheet + checkbox::StyleSheet,
 {
     fn from(value: Device<'a, Message, Fvc, Fcc>) -> Self {
         value.view()

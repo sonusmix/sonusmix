@@ -1,4 +1,4 @@
-use iced::widget::{button, container, text, pane_grid, toggler, slider};
+use iced::widget::{button, container, text, pane_grid, toggler, slider, checkbox};
 use iced::{color, Color};
 
 // This file is mainly a wrapper around the standard Appearance to support own customizations
@@ -186,6 +186,28 @@ impl toggler::StyleSheet for Theme {
                 foreground: self.palette().foreground,
                 foreground_border: None,
             },
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub enum Checkbox {
+    #[default]
+    Default,
+}
+
+impl checkbox::StyleSheet for Theme {
+    type Style = Checkbox;
+
+    fn active(&self, style: &Self::Style, is_active: bool) -> checkbox::Appearance {
+        match style {
+            Checkbox::Default => <iced_native::Theme as checkbox::StyleSheet>::active(&iced_native::Theme::Dark, &iced_native::theme::Checkbox::Primary, is_active),
+        }
+    }
+
+    fn hovered(&self, style: &Self::Style, is_active: bool) -> checkbox::Appearance {
+        match style {
+            Checkbox::Default => <iced_native::Theme as checkbox::StyleSheet>::hovered(&iced_native::Theme::Dark, &iced_native::theme::Checkbox::Primary, is_active),
         }
     }
 }
