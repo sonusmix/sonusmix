@@ -6,6 +6,7 @@ use crate::theme::{self, Theme};
 use iced::widget::{column, pane_grid, text, Column};
 use iced::Length;
 use iced::{application, executor, widget::container, Application, Command, Renderer};
+use tracing::trace;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -84,6 +85,7 @@ impl Application for AppContainer {
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
+        trace!(?message);
         match message {
             Message::GridResize(pane_grid::ResizeEvent { split, ratio }) => {
                 self.panes.resize(split, ratio);
