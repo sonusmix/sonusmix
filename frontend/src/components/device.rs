@@ -16,11 +16,11 @@ pub struct State {
 }
 
 impl State {
-    pub fn new_with_connections(name: String, volume: u32, connections: Option<HashMap<String, bool>>, kind: DeviceKind) -> Self {
+    pub fn new_with_connections(name: String, volume: u32, connections: Option<HashMap<String, bool>>) -> Self {
         Self { name, volume, connections }
     }
 
-    pub fn new(name: String, volume: u32, kind: DeviceKind) -> Self {
+    pub fn new(name: String, volume: u32) -> Self {
         Self { name, volume, connections: None }
     }
 }
