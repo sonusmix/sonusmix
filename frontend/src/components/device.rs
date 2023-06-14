@@ -1,17 +1,27 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use iced::{Element, widget::{column, Row, text, slider, checkbox}};
+use iced::{Element, widget::{column, Row, text, slider, checkbox, Column}};
+
+pub enum DeviceKind {
+    Source,
+    Sink
+}
 
 #[derive(Debug, Clone)]
 pub struct State {
     pub name: String,
     pub volume: u32,
-    pub connections: HashMap<String, bool>,
+    pub connections: Option<HashMap<String, bool>>,
 }
 
 impl State {
-    pub fn new(name: String, volume: u32, connections: HashMap<String, bool>) -> Self {
+    pub fn new_with_connections(name: String, volume: u32, connections: Option<HashMap<String, bool>>, kind: DeviceKind) -> Self {
         Self { name, volume, connections }
+    }
+
+    pub fn new(name: String, volume: u32, kind: DeviceKind) -> Self {
+        Self { name, volume, connections: None }
     }
 }
 
@@ -51,15 +61,22 @@ where
         Renderer: 'a + iced_native::text::Renderer,
         <Renderer as iced_native::Renderer>::Theme: text::StyleSheet + slider::StyleSheet + checkbox::StyleSheet,
     {
-        column![
-            text(&self.state.name),
-            slider(0..=100, self.state.volume, self.on_volume_change_fn),
-            <Element<_, _>>::from(Row::with_children(self.state.connections.iter().map(|(name, is_active)|
+        let mut children: Vec<Element<Message, Renderer>> = Vec::new();
+
+        // title
+        children.push(text(&self.state.name).into());
+
+        // slider
+        children.push(slider(0..=100, self.state.volume, self.on_volume_change_fn).into());
+
+        // connection checkboxes (if device can make connections)
+        if let Some(connections) = &self.state.connections {
+            children.push(<Element<_, _>>::from(Row::with_children(connections.iter().map(|(name, is_active)|
                 checkbox(name.clone(), *is_active, move |s| (name, s)).into()
-            ).collect()))
-                .map(move |(name, s)| (self.on_connection_change_fn)(name, s)),
-        ]
-            .into()
+            ).collect())).map(move |(name, s)| (self.on_connection_change_fn)(name, s)))
+        }
+
+        Column::with_children(children).into()
     }
 }
 
