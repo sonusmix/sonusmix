@@ -50,24 +50,64 @@ impl Application for AppContainer {
 
     fn new(_flags: ()) -> (Self, Command<Self::Message>) {
         // sinks (outputs)
-        let hardware_sinks: Vec<SinkState> = Vec::from([SinkState::new("My cool speakers".to_string(), 100)]);
-        let application_sinks: Vec<SinkState> = Vec::from([SinkState::new("mic used in an application".to_string(), 100), SinkState::new("audio recording application".to_string(), 100)]);
+        let hardware_sinks: Vec<SinkState> =
+            Vec::from([SinkState::new("My cool speakers".to_string(), 100)]);
+        let application_sinks: Vec<SinkState> = Vec::from([
+            SinkState::new("mic used in an application".to_string(), 100),
+            SinkState::new("audio recording application".to_string(), 100),
+        ]);
 
         // all available connections
-        let sinks: HashMap<String, bool> = hardware_sinks.iter().chain(application_sinks.iter()).map(|e| (e.name(), false)).collect();
+        let sinks: HashMap<String, bool> = hardware_sinks
+            .iter()
+            .chain(application_sinks.iter())
+            .map(|e| (e.name(), false))
+            .collect();
 
         // sources (inputs)
-        let hardware_sources: Vec<SourceState> = Vec::from([SourceState::new_with_connections("My great mic".to_string(), 100, sinks.clone())]);
-        let application_sources: Vec<SourceState> = Vec::from([SourceState::new_with_connections("Audio coming from application".to_string(), 100, sinks.clone())]);
+        let hardware_sources: Vec<SourceState> = Vec::from([SourceState::new_with_connections(
+            "My great mic".to_string(),
+            100,
+            sinks.clone(),
+        )]);
+        let application_sources: Vec<SourceState> = Vec::from([SourceState::new_with_connections(
+            "Audio coming from application".to_string(),
+            100,
+            sinks.clone(),
+        )]);
 
         // let hardware_sources_pane: GridState = ("HARDWARE SOURCES", sinks.into_iter().map(|d| {(d.name(), d.clone().into())}).collect());
-        let hardware_sources_pane: GridState = ("HARDWARE SOURCES", hardware_sources.into_iter().map(|d| {(d.name(), d.into())}).collect());
-        let hardware_sinks_pane: GridState = ("HARDWARE SINKS", hardware_sinks.into_iter().map(|d| {(d.name(), d.into())}).collect());
+        let hardware_sources_pane: GridState = (
+            "HARDWARE SOURCES",
+            hardware_sources
+                .into_iter()
+                .map(|d| (d.name(), d.into()))
+                .collect(),
+        );
+        let hardware_sinks_pane: GridState = (
+            "HARDWARE SINKS",
+            hardware_sinks
+                .into_iter()
+                .map(|d| (d.name(), d.into()))
+                .collect(),
+        );
 
         let virtual_devices_pane: GridState = ("VIRTUAL DEVICES", HashMap::new());
 
-        let application_sources_pane: GridState = ("APPLICATION SOURCES", application_sources.into_iter().map(|d| {(d.name(), d.into())}).collect());
-        let application_sinks_pane: GridState = ("APPLICATION SINKS", application_sinks.into_iter().map(|d| {(d.name(), d.into())}).collect());
+        let application_sources_pane: GridState = (
+            "APPLICATION SOURCES",
+            application_sources
+                .into_iter()
+                .map(|d| (d.name(), d.into()))
+                .collect(),
+        );
+        let application_sinks_pane: GridState = (
+            "APPLICATION SINKS",
+            application_sinks
+                .into_iter()
+                .map(|d| (d.name(), d.into()))
+                .collect(),
+        );
 
         (
             AppContainer {
@@ -77,11 +117,12 @@ impl Application for AppContainer {
                         hardware_sinks_pane,
                         application_sources_pane,
                         virtual_devices_pane,
-                        application_sinks_pane
-                    ].into()
-                )
+                        application_sinks_pane,
+                    ]
+                    .into(),
+                ),
             },
-            Command::none()
+            Command::none(),
         )
     }
 
@@ -101,7 +142,13 @@ impl Application for AppContainer {
                 }
             }
             Message::ConnectionChange(id, d, c, s) => {
-                if let Some(c) = self.panes.get_mut(id).1.get_mut(&d).and_then(|d| d.connections.as_mut().unwrap().get_mut(&c)) {
+                if let Some(c) = self
+                    .panes
+                    .get_mut(id)
+                    .1
+                    .get_mut(&d)
+                    .and_then(|d| d.connections.as_mut().unwrap().get_mut(&c))
+                {
                     *c = s;
                 }
             }
@@ -111,16 +158,25 @@ impl Application for AppContainer {
 
     fn view(&self) -> iced::Element<Self::Message, Renderer<Self::Theme>> {
         GridLayout::new(&self.panes, |id, (name, state)| {
-            container(
-                column![
-                    text(name),
-                    Column::with_children(state.iter().map(|(name, state)| Device::new(
-                        state,
-                        move |v| Message::VolumeChange(id, name.clone(), v),
-                        move |c, s| Message::ConnectionChange(id, name.clone(), c.to_string(), s),
-                    ).view()).collect())
-                ],
-            )
+            container(column![
+                text(name),
+                Column::with_children(
+                    state
+                        .iter()
+                        .map(|(name, state)| Device::new(
+                            state,
+                            move |v| Message::VolumeChange(id, name.clone(), v),
+                            move |c, s| Message::ConnectionChange(
+                                id,
+                                name.clone(),
+                                c.to_string(),
+                                s
+                            ),
+                        )
+                        .view())
+                        .collect()
+                )
+            ])
             .padding(10)
             .height(Length::Fill)
             .width(Length::Fill)

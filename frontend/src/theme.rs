@@ -1,4 +1,4 @@
-use iced::widget::{button, container, text, pane_grid, toggler, slider, checkbox};
+use iced::widget::{button, checkbox, container, pane_grid, slider, text, toggler};
 use iced::{color, Color};
 
 // This file is mainly a wrapper around the standard Appearance to support own customizations
@@ -118,42 +118,51 @@ impl slider::StyleSheet for Theme {
     fn active(&self, style: &Self::Style) -> iced::widget::vertical_slider::Appearance {
         match style {
             Slider::Default => slider::Appearance {
-                rail_colors: (Color::from_rgb(1.0, 0.0, 0.0), Color::from_rgb(0.0, 1.0, 0.0)),
+                rail_colors: (
+                    Color::from_rgb(1.0, 0.0, 0.0),
+                    Color::from_rgb(0.0, 1.0, 0.0),
+                ),
                 handle: slider::Handle {
                     shape: slider::HandleShape::Circle { radius: 10.0 },
                     color: Color::from_rgb(0.0, 0.0, 1.0),
                     border_width: 0.0,
                     border_color: Color::TRANSPARENT,
                 },
-            }
+            },
         }
     }
 
     fn hovered(&self, style: &Self::Style) -> iced::widget::vertical_slider::Appearance {
         match style {
             Slider::Default => slider::Appearance {
-                rail_colors: (Color::from_rgb(1.0, 0.0, 0.0), Color::from_rgb(0.0, 1.0, 0.0)),
+                rail_colors: (
+                    Color::from_rgb(1.0, 0.0, 0.0),
+                    Color::from_rgb(0.0, 1.0, 0.0),
+                ),
                 handle: slider::Handle {
                     shape: slider::HandleShape::Circle { radius: 10.0 },
                     color: Color::from_rgb(0.0, 0.0, 1.0),
                     border_width: 0.0,
                     border_color: Color::TRANSPARENT,
                 },
-            }
+            },
         }
     }
 
     fn dragging(&self, style: &Self::Style) -> iced::widget::vertical_slider::Appearance {
         match style {
             Slider::Default => slider::Appearance {
-                rail_colors: (Color::from_rgb(1.0, 0.0, 0.0), Color::from_rgb(0.0, 1.0, 0.0)),
+                rail_colors: (
+                    Color::from_rgb(1.0, 0.0, 0.0),
+                    Color::from_rgb(0.0, 1.0, 0.0),
+                ),
                 handle: slider::Handle {
                     shape: slider::HandleShape::Circle { radius: 10.0 },
                     color: Color::from_rgb(0.0, 0.0, 1.0),
                     border_width: 0.0,
                     border_color: Color::TRANSPARENT,
                 },
-            }
+            },
         }
     }
 }
@@ -201,13 +210,21 @@ impl checkbox::StyleSheet for Theme {
 
     fn active(&self, style: &Self::Style, is_active: bool) -> checkbox::Appearance {
         match style {
-            Checkbox::Default => <iced_native::Theme as checkbox::StyleSheet>::active(&iced_native::Theme::Dark, &iced_native::theme::Checkbox::Primary, is_active),
+            Checkbox::Default => <iced_native::Theme as checkbox::StyleSheet>::active(
+                &iced_native::Theme::Dark,
+                &iced_native::theme::Checkbox::Primary,
+                is_active,
+            ),
         }
     }
 
     fn hovered(&self, style: &Self::Style, is_active: bool) -> checkbox::Appearance {
         match style {
-            Checkbox::Default => <iced_native::Theme as checkbox::StyleSheet>::hovered(&iced_native::Theme::Dark, &iced_native::theme::Checkbox::Primary, is_active),
+            Checkbox::Default => <iced_native::Theme as checkbox::StyleSheet>::hovered(
+                &iced_native::Theme::Dark,
+                &iced_native::theme::Checkbox::Primary,
+                is_active,
+            ),
         }
     }
 }

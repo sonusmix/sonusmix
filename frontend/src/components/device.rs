@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use iced::{Element, widget::{column, Row, text, slider, checkbox, Column}};
+use iced::{
+    widget::{checkbox, column, slider, text, Column, Row},
+    Element,
+};
 
 pub enum DeviceKind {
     Source,
-    Sink
+    Sink,
 }
 
 #[derive(Debug, Clone)]
@@ -16,12 +19,24 @@ pub struct State {
 }
 
 impl State {
-    pub fn new_with_connections(name: String, volume: u32, connections: Option<HashMap<String, bool>>) -> Self {
-        Self { name, volume, connections }
+    pub fn new_with_connections(
+        name: String,
+        volume: u32,
+        connections: Option<HashMap<String, bool>>,
+    ) -> Self {
+        Self {
+            name,
+            volume,
+            connections,
+        }
     }
 
     pub fn new(name: String, volume: u32) -> Self {
-        Self { name, volume, connections: None }
+        Self {
+            name,
+            volume,
+            connections: None,
+        }
     }
 }
 
@@ -59,7 +74,8 @@ where
     where
         Message: 'a + Clone,
         Renderer: 'a + iced_native::text::Renderer,
-        <Renderer as iced_native::Renderer>::Theme: text::StyleSheet + slider::StyleSheet + checkbox::StyleSheet,
+        <Renderer as iced_native::Renderer>::Theme:
+            text::StyleSheet + slider::StyleSheet + checkbox::StyleSheet,
     {
         let mut children: Vec<Element<Message, Renderer>> = Vec::new();
 
@@ -71,22 +87,32 @@ where
 
         // connection checkboxes (if device can make connections)
         if let Some(connections) = &self.state.connections {
-            children.push(<Element<_, _>>::from(Row::with_children(connections.iter().map(|(name, is_active)|
-                checkbox(name.clone(), *is_active, move |s| (name, s)).into()
-            ).collect())).map(move |(name, s)| (self.on_connection_change_fn)(name, s)))
+            children.push(
+                <Element<_, _>>::from(Row::with_children(
+                    connections
+                        .iter()
+                        .map(|(name, is_active)| {
+                            checkbox(name.clone(), *is_active, move |s| (name, s)).into()
+                        })
+                        .collect(),
+                ))
+                .map(move |(name, s)| (self.on_connection_change_fn)(name, s)),
+            )
         }
 
         Column::with_children(children).into()
     }
 }
 
-impl<'a, Message, Renderer, Fvc, Fcc> From<Device<'a, Message, Fvc, Fcc>> for Element<'a, Message, Renderer>
+impl<'a, Message, Renderer, Fvc, Fcc> From<Device<'a, Message, Fvc, Fcc>>
+    for Element<'a, Message, Renderer>
 where
     Fvc: 'a + Fn(u32) -> Message,
     Fcc: 'a + Fn(&str, bool) -> Message,
     Message: 'a + Clone,
     Renderer: 'a + iced_native::text::Renderer,
-    <Renderer as iced_native::Renderer>::Theme: text::StyleSheet + slider::StyleSheet + checkbox::StyleSheet,
+    <Renderer as iced_native::Renderer>::Theme:
+        text::StyleSheet + slider::StyleSheet + checkbox::StyleSheet,
 {
     fn from(value: Device<'a, Message, Fvc, Fcc>) -> Self {
         value.view()

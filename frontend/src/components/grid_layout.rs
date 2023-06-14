@@ -207,12 +207,14 @@ impl<T> State<T> {
     }
 
     pub fn get(&self, id: PaneId) -> &T {
-        self.panes.get(self.pane_ids.get(id))
+        self.panes
+            .get(self.pane_ids.get(id))
             .expect("no panes should be missing")
     }
 
     pub fn get_mut(&mut self, id: PaneId) -> &mut T {
-        self.panes.get_mut(self.pane_ids.get(id))
+        self.panes
+            .get_mut(self.pane_ids.get(id))
             .expect("no panes should be missing")
     }
 }

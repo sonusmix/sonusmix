@@ -18,6 +18,10 @@ impl SinkState {
 
 impl Into<State> for SinkState {
     fn into(self) -> State {
-        State { name: self.name, volume: self.volume, connections: None }
+        State {
+            name: self.name,
+            volume: self.volume,
+            connections: None,
+        }
     }
 }
