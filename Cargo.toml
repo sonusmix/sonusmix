@@ -4,4 +4,5 @@ members = [
     "daemon",
     "frontend",
     "frontend/src-tauri",
+    "frontend-elm/src-tauri",
 ]

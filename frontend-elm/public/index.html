@@ -1,0 +1,19 @@
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Utility HUD</title>
+  <script src="tauri.js"></script>
+  <script src="main.js"></script>
+  <script src="backend.js"></script>
+</head>
+
+<body>
+  <marquee>hey babe!</marquee>
+  <div id="myapp"></div>
+  <script>
+    const app = Elm.Main.init();
+
+    initBackend(app);
+  </script>
+</body>
+</html>
