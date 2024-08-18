@@ -1,7 +1,0 @@
-[workspace]
-
-members = [
-    "daemon",
-    "frontend",
-    "frontend/src-tauri",
-]
