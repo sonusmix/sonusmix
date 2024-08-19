@@ -1,12 +1,18 @@
-use std::thread::JoinHandle;
+use std::{
+    sync::{Arc, RwLock},
+    thread::JoinHandle,
+};
 
 use anyhow::{Context, Result};
+use log::{debug, error};
 use pipewire::{context::Context as PwContext, main_loop::MainLoop};
 use tokio::sync::mpsc;
 
-use super::{FromPipewireMessage, ToPipewireMessage};
+use super::{store::Store, FromPipewireMessage, ToPipewireMessage};
 
-pub(super) fn init_mainloop() -> Result<(
+pub(super) fn init_mainloop(
+    store: Arc<RwLock<Store>>,
+) -> Result<(
     JoinHandle<()>,
     pipewire::channel::Sender<ToPipewireMessage>,
     tokio::sync::mpsc::UnboundedReceiver<FromPipewireMessage>,
@@ -47,7 +53,20 @@ pub(super) fn init_mainloop() -> Result<(
         // Initialize Pipewire listeners
         let _listener = registry
             .add_listener_local()
-            .global(|global| println!("New global: {:?}", global))
+            .global({
+                let store = store.clone();
+                move |global| {
+                    debug!("New object: {global:#?}");
+                    match store
+                        .write()
+                        .expect("store lock poisoned")
+                        .add_object(global)
+                    {
+                        Ok(_) => {}
+                        Err(err) => error!("Error converting object: {err:?}"),
+                    }
+                }
+            })
             .register();
 
         let _remove_listener = registry
