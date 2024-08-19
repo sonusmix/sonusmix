@@ -1,89 +1,55 @@
-use std::sync::{mpsc as std_channel, Arc};
-use std::time::Duration;
+mod mainloop;
 
-use events::PipewireEvent;
-use tokio::sync::{mpsc as tk_channel, RwLock};
+use anyhow::{Context, Result};
+use mainloop::init_mainloop;
+use thiserror::Error;
+use tokio::sync::mpsc;
 
-use log::{debug, info};
-
-use crate::events::ExitSignal;
-use crate::store::PipewireStore;
-use crate::{controller::PipewireController, events::ControllerEvent};
-
-mod controller;
-mod device;
-mod error;
-mod events;
-mod store;
-
-fn main() {
-    simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Debug)
-        .env()
-        .init()
-        .expect("Could not initialize logger");
-
-    info!("Hello, world!");
-
-    debug!("Store initialized");
-    let store = Arc::new(RwLock::new(PipewireStore::new()));
-
-    // TODO: single- or multi-threaded?
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("Unable to start tokio runtime");
-    debug!("Tokio runtime started");
-
-    let PipewireController { tx, rx } = PipewireController::start(store.clone());
-    debug!("Pipewire controller started");
-
-    let (exit1, exit2) = ExitSignal::pair();
-
-    runtime.block_on(async move {
-        let command_handle = tokio::spawn(command_listener(exit1, tx.clone(), store.clone()));
-        debug!("Started command listener");
-
-        let event_handle = tokio::spawn(event_listener(exit2, tx.clone(), rx, store));
-        debug!("Started event listener");
-
-        command_handle.await;
-        event_handle.await;
-    })
+pub struct PipewireHandle {
+    pipewire_thread_handle: std::thread::JoinHandle<()>,
+    adapter_thread_handle: std::thread::JoinHandle<Result<(), PipewireChannelError>>,
 }
 
-/// Listens for and handles commands from clients.
-async fn command_listener(
-    mut exit: ExitSignal,
-    tx: std_channel::Sender<ControllerEvent>,
-    _store: Arc<RwLock<PipewireStore>>,
-) {
-    debug!("Hello from command_listener!");
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    info!("Created virtual sink");
-    tx.send(ControllerEvent::CreateVirtualDevice(
-        device::VirtualDeviceKind::Sink,
-        "sonusmix-daemon".to_string(),
-    ))
-    .unwrap();
-    exit.wait().await;
-}
-
-/// Listens for and handles events from the pipewire controller.
-async fn event_listener(
-    mut exit: ExitSignal,
-    _tx: std_channel::Sender<ControllerEvent>,
-    mut rx: tk_channel::UnboundedReceiver<PipewireEvent>,
-    _store: Arc<RwLock<PipewireStore>>,
-) {
-    debug!("Hello from event_listener!");
-    loop {
-        tokio::select! {
-            Some(event) = rx.recv() => {
-                let PipewireEvent::NewGlobal(s) = event;
-                debug!("{}", s);
-            },
-            _ = exit.wait() => break,
-        };
+impl PipewireHandle {
+    pub fn init() -> Result<Self> {
+        let (pipewire_thread_handle, pw_sender, pw_receiver) =
+            init_mainloop().context("Error initializing the Pipewire thread")?;
+        let (adapter_thread_handle, adapter_receiver) = init_adapter(pw_sender);
+        Ok(Self {
+            pipewire_thread_handle,
+            adapter_thread_handle,
+        })
     }
+}
+
+#[derive(Debug)]
+enum ToPipewireMessage {
+    Exit,
+}
+
+#[derive(Debug)]
+enum FromPipewireMessage {}
+
+#[derive(Error, Debug)]
+#[error("failed to send message to Pipewire: {0:?}")]
+struct PipewireChannelError(ToPipewireMessage);
+
+fn init_adapter(
+    pw_sender: pipewire::channel::Sender<ToPipewireMessage>,
+) -> (
+    std::thread::JoinHandle<Result<(), PipewireChannelError>>,
+    mpsc::UnboundedSender<ToPipewireMessage>,
+) {
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let handle = std::thread::spawn(move || loop {
+        match receiver.blocking_recv().unwrap_or(ToPipewireMessage::Exit) {
+            ToPipewireMessage::Exit => {
+                break pw_sender
+                    .send(ToPipewireMessage::Exit)
+                    .map_err(PipewireChannelError);
+            }
+            message => pw_sender.send(message).map_err(PipewireChannelError)?,
+        }
+    });
+    (handle, sender)
 }

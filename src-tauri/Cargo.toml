@@ -20,3 +20,9 @@ tauri-plugin-shell = "2.0.0-rc"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 pipewire = "0.8.0"
+thiserror = "1.0.63"
+tokio = { version = "1.39.3", features = ["macros"] }
+tauri-plugin-log = "2.0.0-rc.0"
+log = "0.4.22"
+anyhow = { version = "1.0.86", features = ["backtrace"] }
+oneshot = "0.1.8"
