@@ -1,18 +1,24 @@
 <script>
+    import { pipewireStore } from "$lib/backend";
     import { invoke } from "@tauri-apps/api/core";
-    import { getNodes } from "../lib/backend";
-
-    let nodes = [];
-
-    async function refreshNodes() {
-        nodes = await getNodes();
-    }
 </script>
 
-<button on:click={refreshNodes}>Refresh Nodes</button>
-
 <ul>
-    {#each nodes as node}
-        <li>{node}</li>
+    {#each $pipewireStore.endpoints.values() as endpoint (endpoint.id)}
+        <li>
+            {JSON.stringify(endpoint)}
+            <ul>
+                {#each endpoint.nodes.map( (id) => $pipewireStore.nodes.get(id) ) as node (node.id)}
+                    <li>
+                        {JSON.stringify(node)}
+                        <ul>
+                            {#each node.ports.map( (id) => $pipewireStore.ports.get(id), ) as port (port.id)}
+                                <li>{JSON.stringify(port)}</li>
+                            {/each}
+                        </ul>
+                    </li>
+                {/each}
+            </ul>
+        </li>
     {/each}
 </ul>

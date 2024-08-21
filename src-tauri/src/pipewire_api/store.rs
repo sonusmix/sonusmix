@@ -1,12 +1,13 @@
 use std::{collections::HashMap, fmt::Debug, rc::Rc, sync::Arc};
 
 use pipewire::{registry::GlobalObject, spa::utils::dict::DictRef, types::ObjectType};
+use serde::{Deserialize, Serialize};
 
-use super::object::{Device, Link, Node, ObjectConvertError, Port, PortKind};
+use super::{object::{Endpoint, Link, Node, ObjectConvertError, Port, PortKind}, Graph};
 
 #[derive(Debug)]
 pub(super) struct Store {
-    pub(super) devices: HashMap<u32, Device>,
+    pub(super) endpoints: HashMap<u32, Endpoint>,
     pub(super) nodes: HashMap<u32, Node>,
     pub(super) ports: HashMap<u32, Port>,
     pub(super) links: HashMap<u32, Link>,
@@ -15,33 +16,45 @@ pub(super) struct Store {
 impl Store {
     pub(super) fn new() -> Self {
         Self {
-            devices: HashMap::new(),
+            endpoints: HashMap::new(),
             nodes: HashMap::new(),
             ports: HashMap::new(),
             links: HashMap::new(),
         }
     }
 
-    /// The returned boolean describes whether the given type was supported and thus added
+    /// The returned boolean describes whether the given type was supported and thus added.
     pub(super) fn add_object(
         &mut self,
         object: &GlobalObject<&DictRef>,
     ) -> Result<bool, ObjectConvertError> {
         match object.type_ {
+            ObjectType::Client | ObjectType::Device => self.add_endpoint(object)?,
             ObjectType::Node => self.add_node(object)?,
+            ObjectType::Port => self.add_port(object)?,
+            ObjectType::Link => self.add_link(object)?,
             _ => return Ok(false),
         }
         Ok(true)
     }
 
-    pub(super) fn add_device(&mut self, object: &GlobalObject<&DictRef>) -> Result<(), ObjectConvertError> {
-        // Create the device
+    pub(super) fn add_endpoint(
+        &mut self,
+        object: &GlobalObject<&DictRef>,
+    ) -> Result<(), ObjectConvertError> {
+        // Create the endpoint
+        let mut endpoint: Endpoint = object.try_into()?;
 
-        // Find and add any nodes belonging to the device
+        // Find and add any nodes belonging to the endpoint
+        endpoint.nodes = self
+            .nodes
+            .values()
+            .filter_map(|node| (node.endpoint == endpoint.id).then_some(node.id))
+            .collect();
 
-        // Add the device
-
-        todo!()
+        // Add the endpoint
+        self.endpoints.insert(endpoint.id, endpoint);
+        Ok(())
     }
 
     pub(super) fn add_node(
@@ -58,7 +71,10 @@ impl Store {
             .filter_map(|port| (port.node == node.id).then_some(port.id))
             .collect();
 
-        // TODO: If the device the node belongs to exists, add the node to it
+        // If the device the node belongs to exists, add the node to it
+        if let Some(endpoint) = self.endpoints.get_mut(&node.endpoint) {
+            endpoint.nodes.push(node.id);
+        }
 
         // Add the node
         self.nodes.insert(node.id, node);
@@ -100,7 +116,7 @@ impl Store {
         // Create the link
         let link: Link = object.try_into()?;
 
-        // If the ports the link belongs to exists, add the link to them
+        // If the ports the link belongs to exist, add the link to them
         if let Some(port) = self.ports.get_mut(&link.start_port) {
             port.links.push(link.id);
         }
@@ -111,5 +127,14 @@ impl Store {
         // Add the link
         self.links.insert(link.id, link);
         Ok(())
+    }
+
+    pub fn dump_graph(&self) -> Graph {
+        Graph {
+            endpoints: self.endpoints.values().cloned().collect(),
+            nodes: self.nodes.values().cloned().collect(),
+            ports: self.ports.values().cloned().collect(),
+            links: self.links.values().cloned().collect(),
+        }
     }
 }

@@ -62,7 +62,11 @@ pub(super) fn init_mainloop(
                         .expect("store lock poisoned")
                         .add_object(global)
                     {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            sender
+                                .send(FromPipewireMessage::Update)
+                                .expect("subscription channel closed");
+                        }
                         Err(err) => error!("Error converting object: {err:?}"),
                     }
                 }

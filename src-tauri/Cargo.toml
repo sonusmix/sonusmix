@@ -26,3 +26,4 @@ tauri-plugin-log = "2.0.0-rc.0"
 log = "0.4.22"
 anyhow = { version = "1.0.86", features = ["backtrace"] }
 oneshot = "0.1.8"
+slotmap = { version = "1.0.7", features = ["serde"] }
