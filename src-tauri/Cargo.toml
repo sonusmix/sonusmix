@@ -17,7 +17,7 @@ tauri-build = { version = "2.0.0-rc", features = [] }
 [dependencies]
 tauri = { version = "2.0.0-rc", features = ["config-toml"] }
 tauri-plugin-shell = "2.0.0-rc"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 pipewire = "0.8.0"
 thiserror = "1.0.63"

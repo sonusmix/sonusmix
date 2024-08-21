@@ -56,7 +56,7 @@ pub(super) fn init_mainloop(
             .global({
                 let store = store.clone();
                 move |global| {
-                    debug!("New object: {global:#?}");
+                    debug!("New object: {global:?}");
                     match store
                         .write()
                         .expect("store lock poisoned")

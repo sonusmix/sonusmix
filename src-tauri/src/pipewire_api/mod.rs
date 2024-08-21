@@ -1,13 +1,12 @@
 mod mainloop;
 mod object;
 mod store;
-mod tree;
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::{Context, Result};
 use mainloop::init_mainloop;
-use object::{Node, ObjectConvertError, PipewireObject};
+use object::{Node, ObjectConvertError};
 use store::Store;
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -33,14 +32,16 @@ impl PipewireHandle {
         })
     }
 
-    pub fn get_nodes(&self) -> Vec<PipewireObject<Node>> {
-        self.store
-            .read()
-            .expect("store lock poisoned")
-            .nodes
-            .values()
-            .cloned()
-            .collect()
+    pub fn dump_nodes(&self) -> serde_json::Value {
+        serde_json::to_value(
+            self.store
+                .read()
+                .expect("store lock poisoned")
+                .nodes
+                .values()
+                .collect::<Vec<_>>(),
+        )
+        .expect("serialization of nodes should not fail")
     }
 }
 

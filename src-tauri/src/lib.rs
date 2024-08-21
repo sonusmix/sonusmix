@@ -27,10 +27,6 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn get_nodes(pipewire: State<PipewireHandle>) -> Vec<String> {
-    pipewire
-        .get_nodes()
-        .into_iter()
-        .map(|obj| format!("{obj:?}"))
-        .collect()
+fn get_nodes(pipewire: State<PipewireHandle>) -> serde_json::Value {
+    pipewire.dump_nodes()
 }

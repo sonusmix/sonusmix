@@ -1,4 +1,4 @@
-use std::{fmt::Debug, str::FromStr};
+use std::{cell::RefCell, fmt::Debug, rc::Rc, str::FromStr, sync::{Arc, RwLock}};
 
 use pipewire::{keys::*, registry::GlobalObject, spa::utils::dict::DictRef, types::ObjectType};
 use serde::{Deserialize, Serialize};
@@ -93,11 +93,6 @@ impl<'a> ObjectConvertErrorExt for GlobalObject<&'a DictRef> {
     }
 }
 
-trait PipewireObjectType<'a>:
-    TryFrom<&'a GlobalObject<&'a DictRef>, Error = ObjectConvertError>
-{
-}
-
 // #[derive(Clone, Copy, PartialEq, Eq)]
 // pub enum Category {
 //     Physical,
@@ -105,57 +100,31 @@ trait PipewireObjectType<'a>:
 //     SonusmixVirtual,
 // }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipewireObject<T> {
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Device {
     pub id: u32,
-    pub object: T,
+    pub name: String,
+    pub device_kind: DeviceKind,
+    pub nodes: RefCell<Vec<Arc<Node>>>,
 }
 
-impl<'a, T> PipewireObject<T>
-where
-    T: PipewireObjectType<'a>,
-{
-    fn from_global_object(
-        object: &'a GlobalObject<&'a DictRef>,
-    ) -> Result<Self, ObjectConvertError> {
-        Ok(Self {
-            id: object.id,
-            object: object.try_into()?,
-        })
-    }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeviceKind {
+    Physical,
+    Application,
+    Virtual,
 }
 
-impl<'a, T> TryFrom<&'a GlobalObject<&'a DictRef>> for PipewireObject<T>
-where
-    T: PipewireObjectType<'a>,
-{
-    type Error = ObjectConvertError;
-
-    fn try_from(object: &'a GlobalObject<&'a DictRef>) -> Result<Self, Self::Error> {
-        PipewireObject::from_global_object(object)
-    }
-}
-
-// #[derive(Debug)]
-// pub enum AnyPipewireObject {
-//     Node(PipewireObject<Node>),
-// }
-
-// impl AnyPipewireObject {
-//     /// Returns None if the object was an unsupported type
-//     pub(super) fn from_global_object(
-//         object: &GlobalObject<&DictRef>,
-//     ) -> Option<Result<Self, ObjectConvertError>> {
-//         Some(match object.type_ {
-//             ObjectType::Node => PipewireObject::<Node>::from_global_object(object).map(Self::Node),
-//             _ => return None,
-//         })
-//     }
-// }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Node {
-    name: String,
+    pub id: u32,
+    pub name: String,
+    pub ports: RwLock<Vec<Arc<Port>>>,
 }
 
 impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Node {
@@ -166,6 +135,7 @@ impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Node {
         let props = object.get_props()?;
 
         Ok(Self {
+            id: object.id,
             name: props
                 .get(*NODE_NICK)
                 .or_else(|| props.get("node.description"))
@@ -174,16 +144,19 @@ impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Node {
                 // TODO: List all of the possible field names
                 .ok_or_else(|| object.missing_field(*NODE_NAME))?
                 .to_owned(),
+            ports: RwLock::new(Vec::new()),
         })
     }
 }
 
-impl<'a> PipewireObjectType<'a> for Node {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Port {
-    name: String,
-    node: u32,
+    pub id: u32,
+    pub name: String,
+    pub node: u32,
+    pub kind: PortKind,
+    pub links: RwLock<Vec<Arc<Link>>>,
 }
 
 impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Port {
@@ -194,11 +167,59 @@ impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Port {
         let props = object.get_props()?;
 
         Ok(Self {
+            id: object.id,
             name: props
                 .get(*PORT_NAME)
                 .ok_or_else(|| object.missing_field(*PORT_NAME))?
                 .to_owned(),
             node: object.parse_field(*NODE_ID, "integer")?,
+            kind: object.parse_field(*PORT_DIRECTION, "'in' or 'out'")?,
+            links: RwLock::new(Vec::new()),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PortKind {
+    Source,
+    Sink,
+}
+
+impl FromStr for PortKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "in" => Ok(Self::Sink),
+            "out" => Ok(Self::Source),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Link {
+    pub id: u32,
+    pub start_node: u32,
+    pub start_port: u32,
+    pub end_node: u32,
+    pub end_port: u32,
+}
+
+impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Link {
+    type Error = ObjectConvertError;
+
+    fn try_from(object: &'a GlobalObject<&'a DictRef>) -> Result<Self, Self::Error> {
+        object.check_type(ObjectType::Node)?;
+
+        Ok(Self {
+            id: object.id,
+            start_node: object.parse_field(*LINK_INPUT_NODE, "integer")?,
+            start_port: object.parse_field(*LINK_INPUT_PORT, "integer")?,
+            end_node: object.parse_field(*LINK_OUTPUT_NODE, "integer")?,
+            end_port: object.parse_field(*LINK_OUTPUT_PORT, "integer")?,
         })
     }
 }
