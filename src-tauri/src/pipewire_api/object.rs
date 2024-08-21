@@ -1,4 +1,10 @@
-use std::{cell::RefCell, fmt::Debug, rc::Rc, str::FromStr, sync::{Arc, RwLock}};
+use std::{
+    cell::RefCell,
+    fmt::Debug,
+    rc::Rc,
+    str::FromStr,
+    sync::{Arc, RwLock},
+};
 
 use pipewire::{keys::*, registry::GlobalObject, spa::utils::dict::DictRef, types::ObjectType};
 use serde::{Deserialize, Serialize};
@@ -100,16 +106,14 @@ impl<'a> ObjectConvertErrorExt for GlobalObject<&'a DictRef> {
 //     SonusmixVirtual,
 // }
 
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Device {
     pub id: u32,
     pub name: String,
     pub device_kind: DeviceKind,
-    pub nodes: RefCell<Vec<Arc<Node>>>,
+    pub nodes: Vec<u32>,
 }
-
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,12 +123,24 @@ pub enum DeviceKind {
     Virtual,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+// impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Device {
+//     type Error = ObjectConvertError;
+
+//     fn try_from(object: &'a GlobalObject<&'a DictRef>) -> Result<Self, Self::Error> {
+//         object.check_type(ObjectType::Node)?;
+//         let props = object.get_props()?;
+
+//         Ok(Self {
+//         })
+//     }
+// }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     pub id: u32,
     pub name: String,
-    pub ports: RwLock<Vec<Arc<Port>>>,
+    pub ports: Vec<u32>,
 }
 
 impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Node {
@@ -144,19 +160,19 @@ impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Node {
                 // TODO: List all of the possible field names
                 .ok_or_else(|| object.missing_field(*NODE_NAME))?
                 .to_owned(),
-            ports: RwLock::new(Vec::new()),
+            ports: Vec::new(),
         })
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Port {
     pub id: u32,
     pub name: String,
     pub node: u32,
     pub kind: PortKind,
-    pub links: RwLock<Vec<Arc<Link>>>,
+    pub links: Vec<u32>,
 }
 
 impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Port {
@@ -174,7 +190,7 @@ impl<'a> TryFrom<&'a GlobalObject<&'a DictRef>> for Port {
                 .to_owned(),
             node: object.parse_field(*NODE_ID, "integer")?,
             kind: object.parse_field(*PORT_DIRECTION, "'in' or 'out'")?,
-            links: RwLock::new(Vec::new()),
+            links: Vec::new(),
         })
     }
 }
