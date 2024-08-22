@@ -1,6 +1,7 @@
 mod mainloop;
 mod object;
 mod store;
+mod pod;
 
 use std::{
     sync::{Arc, Mutex},

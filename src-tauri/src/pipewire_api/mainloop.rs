@@ -7,10 +7,17 @@ use pipewire::{
     keys::*,
     main_loop::MainLoop,
     properties::properties,
-    spa::{param::ParamType, pod::PodObject},
+    spa::{
+        param::ParamType,
+        pod::{deserialize::PodDeserializer, PodObject},
+        sys::SPA_PROP_channelVolumes,
+        utils::Id,
+    },
     types::ObjectType,
 };
 use tokio::sync::mpsc;
+
+use crate::pipewire_api::pod::NodeProps;
 
 use super::{store::Store, FromPipewireMessage, Subscriptions, ToPipewireMessage};
 
@@ -99,9 +106,9 @@ pub(super) fn init_mainloop(
                                                     let id = global.id;
                                                     move |_, type_, _, _, param| {
                                                         if let Some(param) = param {
+                                                            let (_, value) = PodDeserializer::deserialize_any_from(param.as_bytes()).expect("deserialization failed");
                                                             debug!(
-                                                                "id: {id}, type: {type_:?}, param: {:?}",
-                                                                param.type_()
+                                                                "id: {id}, type: {type_:?}, param: {value:?}",
                                                             );
                                                         }
                                                     }
