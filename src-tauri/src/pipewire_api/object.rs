@@ -1,5 +1,6 @@
 use std::{fmt::Debug, str::FromStr};
 
+use derivative::Derivative;
 use pipewire::{
     keys::*,
     registry::{GlobalObject, Registry},
@@ -114,13 +115,13 @@ impl<'a> ObjectConvertErrorExt for GlobalObject<&'a DictRef> {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Client<T = pipewire::client::Client> {
+pub struct Client<P = pipewire::client::Client> {
     pub id: u32,
     pub name: String,
     pub is_sonusmix: bool,
     pub nodes: Vec<u32>,
     #[serde(skip)]
-    pub(super) proxy: T,
+    pub(super) proxy: P,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,7 +137,7 @@ impl Client<pipewire::client::Client> {
         registry: &Registry,
         object: &GlobalObject<&DictRef>,
     ) -> Result<Self, ObjectConvertError> {
-        object.check_type(ObjectType::Client, "Client");
+        object.check_type(ObjectType::Client, "Client")?;
         let props = object.get_props()?;
         let proxy = registry.bind(object)?;
 
@@ -164,23 +165,27 @@ impl Client<pipewire::client::Client> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Derivative, Serialize, Deserialize)]
+#[derivative(Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct Device<T = pipewire::device::Device> {
+pub struct Device<P = pipewire::device::Device, L = Option<pipewire::device::DeviceListener>> {
     pub id: u32,
     pub name: String,
     pub client: u32,
     pub nodes: Vec<u32>,
     #[serde(skip)]
-    pub(super) proxy: T,
+    pub(super) proxy: P,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub(super) listener: L,
 }
 
-impl Device<pipewire::device::Device> {
+impl Device {
     pub(super) fn from_global(
         registry: &Registry,
         object: &GlobalObject<&DictRef>,
     ) -> Result<Self, ObjectConvertError> {
-        object.check_type(ObjectType::Device, "Device");
+        object.check_type(ObjectType::Device, "Device")?;
         let proxy = registry.bind(object)?;
         let props = object.get_props()?;
 
@@ -196,32 +201,39 @@ impl Device<pipewire::device::Device> {
             client: object.parse_fields([*CLIENT_ID], "integer")?,
             nodes: Vec::new(),
             proxy,
+            listener: None,
         })
     }
 
-    pub fn without_proxy(&self) -> Device<()> {
+    pub fn without_proxy(&self) -> Device<(), ()> {
         Device {
             id: self.id,
             name: self.name.clone(),
             client: self.client,
             nodes: self.nodes.clone(),
             proxy: (),
+            listener: (),
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Derivative, Serialize, Deserialize)]
+#[derivative(Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct Node<T = pipewire::node::Node> {
+pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListener>> {
     pub id: u32,
     pub name: String,
     pub endpoint: u32,
     pub ports: Vec<u32>,
+    pub channel_volumes: Box<[f32]>,
     #[serde(skip)]
-    pub(super) proxy: T,
+    pub(super) proxy: P,
+    #[derivative(Debug = "ignore")]
+    #[serde(skip)]
+    pub(super) listener: L,
 }
 
-impl Node<pipewire::node::Node> {
+impl Node {
     pub(super) fn from_global(
         registry: &Registry,
         object: &GlobalObject<&DictRef>,
@@ -242,17 +254,21 @@ impl Node<pipewire::node::Node> {
                 .to_owned(),
             endpoint: object.parse_fields([*DEVICE_ID, *CLIENT_ID], "integer")?,
             ports: Vec::new(),
+            channel_volumes: Box::new([]),
             proxy,
+            listener: None,
         })
     }
 
-    pub fn without_proxy(&self) -> Node<()> {
+    pub fn without_proxy(&self) -> Node<(), ()> {
         Node {
             id: self.id,
             name: self.name.clone(),
             endpoint: self.endpoint,
             ports: self.ports.clone(),
+            channel_volumes: self.channel_volumes.clone(),
             proxy: (),
+            listener: (),
         }
     }
 }
@@ -269,7 +285,7 @@ pub struct Port<P = pipewire::port::Port> {
     pub(super) proxy: P,
 }
 
-impl Port<pipewire::port::Port> {
+impl Port {
     pub (super) fn from_global(
         registry: &Registry,
         object: &GlobalObject<&DictRef>,

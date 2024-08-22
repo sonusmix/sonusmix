@@ -3,7 +3,12 @@ use std::{cell::RefCell, rc::Rc, sync::Arc, thread::JoinHandle};
 use anyhow::{Context, Result};
 use log::{debug, error};
 use pipewire::{
-    context::Context as PwContext, keys::*, main_loop::MainLoop, properties::properties,
+    context::Context as PwContext,
+    keys::*,
+    main_loop::MainLoop,
+    properties::properties,
+    spa::{param::ParamType, pod::PodObject},
+    types::ObjectType,
 };
 use tokio::sync::mpsc;
 
@@ -76,13 +81,38 @@ pub(super) fn init_mainloop(
                 // let sender = sender.clone();
                 let registry = registry.clone();
                 move |global| {
-                    debug!("New object: {global:?}");
+                    // debug!("New object: {global:?}");
                     let mut store_borrow = store.borrow_mut();
                     match store_borrow.add_object(&registry, global) {
                         Ok(_) => {
-                            // If the object was the Sonusmix client, mark it as a manager
-
                             update_subscriptions(&subscriptions, &store_borrow);
+
+                            // Add param listeners for volume
+                            match global.type_ {
+                                ObjectType::Node => {
+                                    if let Some(node) = store_borrow.nodes.get_mut(&global.id) {
+                                        node.listener = Some(
+                                            node.proxy
+                                                .add_listener_local()
+                                                .param({
+                                                    // comment to hold the formatting
+                                                    let id = global.id;
+                                                    move |_, type_, _, _, param| {
+                                                        if let Some(param) = param {
+                                                            debug!(
+                                                                "id: {id}, type: {type_:?}, param: {:?}",
+                                                                param.type_()
+                                                            );
+                                                        }
+                                                    }
+                                                })
+                                                .register(),
+                                        );
+                                        node.proxy.enum_params(0, Some(ParamType::Props), 0, u32::MAX);
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                         Err(err) => error!("Error converting object: {err:?}"),
                     }

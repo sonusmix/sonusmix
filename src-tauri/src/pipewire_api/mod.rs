@@ -97,8 +97,8 @@ impl Drop for PipewireHandle {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Graph {
     pub clients: Vec<Client<()>>,
-    pub devices: Vec<Device<()>>,
-    pub nodes: Vec<Node<()>>,
+    pub devices: Vec<Device<(), ()>>,
+    pub nodes: Vec<Node<(), ()>>,
     pub ports: Vec<Port<()>>,
     pub links: Vec<Link<()>>,
 }
