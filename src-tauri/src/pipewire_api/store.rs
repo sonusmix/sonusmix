@@ -3,7 +3,10 @@ use std::{collections::HashMap, fmt::Debug, rc::Rc, sync::Arc};
 use pipewire::{registry::GlobalObject, spa::utils::dict::DictRef, types::ObjectType};
 use serde::{Deserialize, Serialize};
 
-use super::{object::{Endpoint, Link, Node, ObjectConvertError, Port, PortKind}, Graph};
+use super::{
+    object::{Endpoint, Link, Node, ObjectConvertError, Port, PortKind},
+    Graph,
+};
 
 #[derive(Debug)]
 pub(super) struct Store {
@@ -36,6 +39,30 @@ impl Store {
             _ => return Ok(false),
         }
         Ok(true)
+    }
+
+    pub(super) fn remove_object(&mut self, id: u32) {
+        if let Some(_endpoint) = self.endpoints.remove(&id) {
+            // Nothing else needs to be done
+        } else if let Some(node) = self.nodes.remove(&id) {
+            // If the endpoint the node belongs to exists, remove the node from it
+            if let Some(endpoint) = self.endpoints.get_mut(&node.endpoint) {
+                endpoint.nodes.retain(|id| *id != node.id);
+            }
+        } else if let Some(port) = self.ports.remove(&id) {
+            // If the node the port belongs to exists, remove the port from it
+            if let Some(node) = self.nodes.get_mut(&port.node) {
+                node.ports.retain(|id| *id != port.id);
+            }
+        } else if let Some(link) = self.links.remove(&id) {
+            // If the ports the link belongs to exist, remove the link from them
+            if let Some(port) = self.ports.get_mut(&link.start_port) {
+                port.links.retain(|id| *id != link.id);
+            }
+            if let Some(port) = self.ports.get_mut(&link.end_port) {
+                port.links.retain(|id| *id != link.id);
+            }
+        }
     }
 
     pub(super) fn add_endpoint(
@@ -71,7 +98,7 @@ impl Store {
             .filter_map(|port| (port.node == node.id).then_some(port.id))
             .collect();
 
-        // If the device the node belongs to exists, add the node to it
+        // If the endpoint the node belongs to exists, add the node to it
         if let Some(endpoint) = self.endpoints.get_mut(&node.endpoint) {
             endpoint.nodes.push(node.id);
         }

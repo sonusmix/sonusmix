@@ -55,6 +55,7 @@ pub(super) fn init_mainloop(
             .add_listener_local()
             .global({
                 let store = store.clone();
+                let sender = sender.clone();
                 move |global| {
                     debug!("New object: {global:?}");
                     match store
@@ -65,7 +66,7 @@ pub(super) fn init_mainloop(
                         Ok(_) => {
                             sender
                                 .send(FromPipewireMessage::Update)
-                                .expect("subscription channel closed");
+                                .expect("channel from pipewire closed");
                         }
                         Err(err) => error!("Error converting object: {err:?}"),
                     }
@@ -75,7 +76,20 @@ pub(super) fn init_mainloop(
 
         let _remove_listener = registry
             .add_listener_local()
-            .global_remove(|global| println!("Global removed: {:?}", global))
+            .global_remove({
+                let store = store.clone();
+                let sender = sender.clone();
+                move |global| {
+                    println!("Global removed: {:?}", global);
+                    store
+                        .write()
+                        .expect("store lock poisoned")
+                        .remove_object(global);
+                    sender
+                        .send(FromPipewireMessage::Update)
+                        .expect("channel from pipewire closed");
+                }
+            })
             .register();
 
         println!("mainloop initialization done");
