@@ -1,9 +1,4 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, RwLock},
-    thread::JoinHandle,
-};
+use std::{cell::RefCell, rc::Rc, sync::Arc, thread::JoinHandle};
 
 use anyhow::{Context, Result};
 use log::{debug, error};

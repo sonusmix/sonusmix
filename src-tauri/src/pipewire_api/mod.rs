@@ -3,8 +3,7 @@ mod object;
 mod store;
 
 use std::{
-    future::Future,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     thread,
 };
 

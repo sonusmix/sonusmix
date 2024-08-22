@@ -1,10 +1,13 @@
-use std::{collections::HashMap, fmt::Debug, rc::Rc, sync::Arc};
+use std::{collections::HashMap, fmt::Debug};
 
-use pipewire::{registry::{GlobalObject, Registry}, spa::utils::dict::DictRef, types::ObjectType};
-use serde::{Deserialize, Serialize};
+use pipewire::{
+    registry::{GlobalObject, Registry},
+    spa::utils::dict::DictRef,
+    types::ObjectType,
+};
 
 use super::{
-    object::{Client, Device, EndpointKind, Link, Node, ObjectConvertError, Port, PortKind},
+    object::{Client, Device, Link, Node, ObjectConvertError, Port, PortKind},
     Graph,
 };
 
