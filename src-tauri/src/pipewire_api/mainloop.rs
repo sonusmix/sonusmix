@@ -1,17 +1,33 @@
 use std::{
+    cell::RefCell,
+    rc::Rc,
     sync::{Arc, RwLock},
     thread::JoinHandle,
 };
 
 use anyhow::{Context, Result};
 use log::{debug, error};
-use pipewire::{context::Context as PwContext, main_loop::MainLoop};
+use pipewire::{
+    context::Context as PwContext, keys::*, main_loop::MainLoop, properties::properties,
+};
 use tokio::sync::mpsc;
 
-use super::{store::Store, FromPipewireMessage, ToPipewireMessage};
+use super::{store::Store, FromPipewireMessage, Subscriptions, ToPipewireMessage};
+
+fn update_subscriptions(subscriptions: &Subscriptions, store: &Store) {
+    let graph = Arc::new(store.dump_graph());
+
+    for subscription in subscriptions
+        .lock()
+        .expect("subscriptions lock poisoned")
+        .values()
+    {
+        subscription(graph.clone());
+    }
+}
 
 pub(super) fn init_mainloop(
-    store: Arc<RwLock<Store>>,
+    subscriptions: Subscriptions,
 ) -> Result<(
     JoinHandle<()>,
     pipewire::channel::Sender<ToPipewireMessage>,
@@ -24,6 +40,7 @@ pub(super) fn init_mainloop(
     let handle = std::thread::spawn(move || {
         let sender = from_pw_tx;
         let receiver = to_pw_rx;
+        let store = Rc::new(RefCell::new(Store::new()));
 
         // Initialize Pipewire stuff
         let init_result = (|| {
@@ -31,6 +48,9 @@ pub(super) fn init_mainloop(
             let context =
                 PwContext::new(&mainloop).context("Failed to iniaizlize Pipewire context")?;
             let pw_core = context
+                // .connect(Some(properties! {
+                //     *MEDIA_CATEGORY => "Manager",
+                // }))
                 .connect(None)
                 .context("Failed to connect to Pipewire")?;
             let registry = pw_core
@@ -49,24 +69,25 @@ pub(super) fn init_mainloop(
                 return;
             }
         };
+        let mainloop = Rc::new(mainloop);
+        let registry = Rc::new(registry);
 
         // Initialize Pipewire listeners
         let _listener = registry
             .add_listener_local()
             .global({
+                let subscriptions = subscriptions.clone();
                 let store = store.clone();
-                let sender = sender.clone();
+                // let sender = sender.clone();
+                let registry = registry.clone();
                 move |global| {
                     debug!("New object: {global:?}");
-                    match store
-                        .write()
-                        .expect("store lock poisoned")
-                        .add_object(global)
-                    {
+                    let mut store_borrow = store.borrow_mut();
+                    match store_borrow.add_object(&registry, global) {
                         Ok(_) => {
-                            sender
-                                .send(FromPipewireMessage::Update)
-                                .expect("channel from pipewire closed");
+                            // If the object was the Sonusmix client, mark it as a manager
+
+                            update_subscriptions(&subscriptions, &store_borrow);
                         }
                         Err(err) => error!("Error converting object: {err:?}"),
                     }
@@ -77,20 +98,35 @@ pub(super) fn init_mainloop(
         let _remove_listener = registry
             .add_listener_local()
             .global_remove({
+                let subscriptions = subscriptions.clone();
                 let store = store.clone();
-                let sender = sender.clone();
+                // let sender = sender.clone();
+                // let registry = registry.clone();
                 move |global| {
                     println!("Global removed: {:?}", global);
-                    store
-                        .write()
-                        .expect("store lock poisoned")
-                        .remove_object(global);
-                    sender
-                        .send(FromPipewireMessage::Update)
-                        .expect("channel from pipewire closed");
+                    let mut store_borrow = store.borrow_mut();
+                    store_borrow.remove_object(global);
+                    update_subscriptions(&subscriptions, &store_borrow);
                 }
             })
             .register();
+
+        let _receiver = receiver.attach(mainloop.loop_(), {
+            let mainloop = mainloop.clone();
+            let store = store.clone();
+            move |message| match message {
+                ToPipewireMessage::UpdateOne(key) => {
+                    if let Some(subscription) = subscriptions
+                        .lock()
+                        .expect("subscriptions lock poisoned")
+                        .get(key)
+                    {
+                        subscription({ Arc::new(store.borrow().dump_graph()) });
+                    }
+                }
+                ToPipewireMessage::Exit => mainloop.quit(),
+            }
+        });
 
         println!("mainloop initialization done");
 

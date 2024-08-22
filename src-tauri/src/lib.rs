@@ -14,7 +14,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             greet,
-            dump_graph,
             subscribe_to_pipewire,
             update_pipewire_subscriber,
             unsubscribe_from_pipewire,
@@ -33,11 +32,6 @@ pub fn run() {
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
-#[tauri::command]
-fn dump_graph(pipewire: State<PipewireHandle>) -> pipewire_api::Graph {
-    pipewire.dump_graph()
 }
 
 #[tauri::command]

@@ -1,16 +1,18 @@
 use std::{collections::HashMap, fmt::Debug, rc::Rc, sync::Arc};
 
-use pipewire::{registry::GlobalObject, spa::utils::dict::DictRef, types::ObjectType};
+use pipewire::{registry::{GlobalObject, Registry}, spa::utils::dict::DictRef, types::ObjectType};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    object::{Endpoint, Link, Node, ObjectConvertError, Port, PortKind},
+    object::{Client, Device, EndpointKind, Link, Node, ObjectConvertError, Port, PortKind},
     Graph,
 };
 
 #[derive(Debug)]
 pub(super) struct Store {
-    pub(super) endpoints: HashMap<u32, Endpoint>,
+    pub(super) sonusmix_client_id: Option<u32>,
+    pub(super) clients: HashMap<u32, Client>,
+    pub(super) devices: HashMap<u32, Device>,
     pub(super) nodes: HashMap<u32, Node>,
     pub(super) ports: HashMap<u32, Port>,
     pub(super) links: HashMap<u32, Link>,
@@ -19,7 +21,9 @@ pub(super) struct Store {
 impl Store {
     pub(super) fn new() -> Self {
         Self {
-            endpoints: HashMap::new(),
+            sonusmix_client_id: None,
+            clients: HashMap::new(),
+            devices: HashMap::new(),
             nodes: HashMap::new(),
             ports: HashMap::new(),
             links: HashMap::new(),
@@ -29,24 +33,31 @@ impl Store {
     /// The returned boolean describes whether the given type was supported and thus added.
     pub(super) fn add_object(
         &mut self,
+        registry: &Registry,
         object: &GlobalObject<&DictRef>,
     ) -> Result<bool, ObjectConvertError> {
         match object.type_ {
-            ObjectType::Client | ObjectType::Device => self.add_endpoint(object)?,
-            ObjectType::Node => self.add_node(object)?,
-            ObjectType::Port => self.add_port(object)?,
-            ObjectType::Link => self.add_link(object)?,
+            ObjectType::Client => self.add_client(registry, object)?,
+            ObjectType::Device => self.add_device(registry, object)?,
+            ObjectType::Node => self.add_node(registry, object)?,
+            ObjectType::Port => self.add_port(registry, object)?,
+            ObjectType::Link => self.add_link(registry, object)?,
             _ => return Ok(false),
         }
         Ok(true)
     }
 
     pub(super) fn remove_object(&mut self, id: u32) {
-        if let Some(_endpoint) = self.endpoints.remove(&id) {
-            // Nothing else needs to be done
+        if let Some(client) = self.clients.remove(&id) {
+            // Check if the client being removed is Sonusmix. If so, remove its id.
+            if client.is_sonusmix {
+                self.sonusmix_client_id = None;
+            }
+        } else if let Some(_device) = self.devices.remove(&id) {
+            // Nothing else to do (for now)
         } else if let Some(node) = self.nodes.remove(&id) {
             // If the endpoint the node belongs to exists, remove the node from it
-            if let Some(endpoint) = self.endpoints.get_mut(&node.endpoint) {
+            if let Some(endpoint) = self.clients.get_mut(&node.endpoint) {
                 endpoint.nodes.retain(|id| *id != node.id);
             }
         } else if let Some(port) = self.ports.remove(&id) {
@@ -65,31 +76,60 @@ impl Store {
         }
     }
 
-    pub(super) fn add_endpoint(
+    pub(super) fn add_client(
         &mut self,
+        registry: &Registry,
+        object: &GlobalObject<&DictRef>,
+    ) -> Result<(), ObjectConvertError> {
+        // Create the client
+        let mut client = Client::from_global(registry, object)?;
+
+        // Find and add any nodes belonging to the client
+        client.nodes = self
+            .nodes
+            .values()
+            .filter_map(|node| (node.endpoint == client.id).then_some(node.id))
+            .collect();
+
+        // Check if the client is Sonusmix. If so, record its id.
+        if client.is_sonusmix {
+            self.sonusmix_client_id = Some(client.id);
+        }
+
+        // Add the client
+        self.clients.insert(client.id, client);
+        Ok(())
+    }
+
+    pub(super) fn add_device(
+        &mut self,
+        registry: &Registry,
         object: &GlobalObject<&DictRef>,
     ) -> Result<(), ObjectConvertError> {
         // Create the endpoint
-        let mut endpoint: Endpoint = object.try_into()?;
+        let mut device = Device::from_global(registry, object)?;
 
-        // Find and add any nodes belonging to the endpoint
-        endpoint.nodes = self
+        // TODO: Sort out the relationship between devices and clients
+
+        // Find and add any nodes belonging to the device
+        device.nodes = self
             .nodes
             .values()
-            .filter_map(|node| (node.endpoint == endpoint.id).then_some(node.id))
+            .filter_map(|node| (node.endpoint == device.id).then_some(node.id))
             .collect();
 
-        // Add the endpoint
-        self.endpoints.insert(endpoint.id, endpoint);
+        // Add the device
+        self.devices.insert(device.id, device);
         Ok(())
     }
 
     pub(super) fn add_node(
         &mut self,
+        registry: &Registry,
         object: &GlobalObject<&DictRef>,
     ) -> Result<(), ObjectConvertError> {
         // Create the node
-        let mut node: Node = object.try_into()?;
+        let mut node = Node::from_global(registry, object)?;
 
         // Find and add any ports belonging to the node
         node.ports = self
@@ -99,7 +139,7 @@ impl Store {
             .collect();
 
         // If the endpoint the node belongs to exists, add the node to it
-        if let Some(endpoint) = self.endpoints.get_mut(&node.endpoint) {
+        if let Some(endpoint) = self.clients.get_mut(&node.endpoint) {
             endpoint.nodes.push(node.id);
         }
 
@@ -110,10 +150,11 @@ impl Store {
 
     pub(super) fn add_port(
         &mut self,
+        registry: &Registry,
         object: &GlobalObject<&DictRef>,
     ) -> Result<(), ObjectConvertError> {
         // Create the port
-        let mut port: Port = object.try_into()?;
+        let mut port = Port::from_global(registry, object)?;
 
         // Find and add any links belonging to the port
         let matching_id: fn(&Link) -> u32 = match port.kind {
@@ -138,10 +179,11 @@ impl Store {
 
     pub(super) fn add_link(
         &mut self,
+        registry: &Registry,
         object: &GlobalObject<&DictRef>,
     ) -> Result<(), ObjectConvertError> {
         // Create the link
-        let link: Link = object.try_into()?;
+        let link = Link::from_global(registry, object)?;
 
         // If the ports the link belongs to exist, add the link to them
         if let Some(port) = self.ports.get_mut(&link.start_port) {
@@ -158,10 +200,11 @@ impl Store {
 
     pub fn dump_graph(&self) -> Graph {
         Graph {
-            endpoints: self.endpoints.values().cloned().collect(),
-            nodes: self.nodes.values().cloned().collect(),
-            ports: self.ports.values().cloned().collect(),
-            links: self.links.values().cloned().collect(),
+            clients: self.clients.values().map(Client::without_proxy).collect(),
+            devices: self.devices.values().map(Device::without_proxy).collect(),
+            nodes: self.nodes.values().map(Node::without_proxy).collect(),
+            ports: self.ports.values().map(Port::without_proxy).collect(),
+            links: self.links.values().map(Link::without_proxy).collect(),
         }
     }
 }

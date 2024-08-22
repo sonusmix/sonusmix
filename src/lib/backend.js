@@ -24,7 +24,8 @@ function mapFromObjects(objects) {
  */
 function buildGraph(rawGraph) {
     return {
-        endpoints: mapFromObjects(rawGraph.endpoints),
+        clients: mapFromObjects(rawGraph.clients),
+        devices: mapFromObjects(rawGraph.devices),
         nodes: mapFromObjects(rawGraph.nodes),
         ports: mapFromObjects(rawGraph.ports),
         links: mapFromObjects(rawGraph.links),
@@ -42,7 +43,8 @@ let pipewireSubscriptionKey = null;
 /** @type {Readable<Graph>} */
 export const pipewireStore = readable(
     {
-        endpoints: new Map(),
+        clients: new Map(),
+        devices: new Map(),
         nodes: new Map(),
         ports: new Map(),
         links: new Map(),

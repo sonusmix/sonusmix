@@ -1,25 +1,34 @@
 export type RawGraph = {
-    endpoints: Endpoint[];
+    clients: Client[];
+    devices: Device[];
     nodes: Node[];
     ports: Port[];
     links: Link[];
 };
 
 export type Graph = {
-    endpoints: Map<number, Endpoint>;
+    clients: Map<number, Client>;
+    devices: Map<number, Device>;
     nodes: Map<number, Node>;
     ports: Map<number, Port>;
     links: Map<number, Link>;
 };
 
-export type Endpoint = {
+export type Client = {
     id: number;
     name: string;
-    kind: EndpointKind;
+    isSonusmix: boolean;
     nodes: number[];
 };
 
-export type EndpointKind = "physical" | "application" | "sonusmix";
+// export type EndpointKind = "physical" | "application" | "sonusmix";
+
+export type Device = {
+    id: number;
+    name: string;
+    client: number;
+    nodes: number[];
+}
 
 export type Node = {
     id: number;
