@@ -1,16 +1,17 @@
-use std::{fmt::Debug, str::FromStr};
+use std::{fmt::Debug, rc::Rc, str::FromStr, sync::{Arc, Mutex}};
 
 use derivative::Derivative;
+use log::debug;
 use pipewire::{
     keys::*,
     registry::{GlobalObject, Registry},
-    spa::utils::dict::DictRef,
+    spa::{param::ParamType, pod::{deserialize::PodDeserializer, Value}, utils::dict::DictRef},
     types::ObjectType,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::SONUSMIX_APP_NAME;
+use super::{pod::NodeProps, SONUSMIX_APP_NAME};
 
 #[derive(Error, Debug)]
 pub enum ObjectConvertError {
@@ -186,7 +187,7 @@ impl Device {
         object: &GlobalObject<&DictRef>,
     ) -> Result<Self, ObjectConvertError> {
         object.check_type(ObjectType::Device, "Device")?;
-        let proxy = registry.bind(object)?;
+        let proxy: pipewire::device::Device = registry.bind(object)?;
         let props = object.get_props()?;
 
         Ok(Self {
@@ -225,9 +226,11 @@ pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListene
     pub name: String,
     pub endpoint: u32,
     pub ports: Vec<u32>,
-    pub channel_volumes: Box<[f32]>,
+    // #[serde(skip)]
+    pub channel_volumes: Vec<f32>,
     #[serde(skip)]
     pub(super) proxy: P,
+    // listener is set by mainloop
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
     pub(super) listener: L,
@@ -240,7 +243,7 @@ impl Node {
     ) -> Result<Self, ObjectConvertError> {
         object.check_type(ObjectType::Node, "Node")?;
         let props = object.get_props()?;
-        let proxy = registry.bind(object)?;
+        let proxy: pipewire::node::Node = registry.bind(object)?;
 
         Ok(Self {
             id: object.id,
@@ -254,7 +257,7 @@ impl Node {
                 .to_owned(),
             endpoint: object.parse_fields([*DEVICE_ID, *CLIENT_ID], "integer")?,
             ports: Vec::new(),
-            channel_volumes: Box::new([]),
+            channel_volumes: Vec::new(),
             proxy,
             listener: None,
         })
@@ -269,6 +272,14 @@ impl Node {
             channel_volumes: self.channel_volumes.clone(),
             proxy: (),
             listener: (),
+        }
+    }
+}
+
+impl ParamListener for Node {
+    fn on_param_event(&mut self, _param_type: ParamType, param: Value) {
+        if let Some(volume) = NodeProps::new(param).get_volumes() {
+            self.channel_volumes = volume.to_vec();
         }
     }
 }
@@ -378,4 +389,11 @@ impl Link {
             proxy: (),
         }
     }
+}
+
+/// Parameter listener
+///
+/// Local processing of parameter events dispatched from Master
+pub trait ParamListener {
+    fn on_param_event(&mut self, param_type: ParamType, param: Value);
 }

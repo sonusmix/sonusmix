@@ -1,12 +1,14 @@
-use std::{cell::RefCell, rc::Rc, sync::Arc, thread::JoinHandle};
+use std::{cell::{RefCell, RefMut}, ops::Deref, rc::Rc, sync::Arc, thread::JoinHandle};
 
 use anyhow::{Context, Result};
+
 use log::{debug, error};
 use pipewire::{
     context::Context as PwContext,
     keys::*,
     main_loop::MainLoop,
     properties::properties,
+    registry::Registry,
     spa::{
         param::ParamType,
         pod::{deserialize::PodDeserializer, PodObject},
@@ -19,7 +21,7 @@ use tokio::sync::mpsc;
 
 use crate::pipewire_api::pod::NodeProps;
 
-use super::{store::Store, FromPipewireMessage, Subscriptions, ToPipewireMessage};
+use super::{object::ParamListener, store::Store, FromPipewireMessage, Subscriptions, ToPipewireMessage};
 
 fn update_subscriptions(subscriptions: &Subscriptions, store: &Store) {
     let graph = Arc::new(store.dump_graph());
@@ -30,6 +32,102 @@ fn update_subscriptions(subscriptions: &Subscriptions, store: &Store) {
         .values()
     {
         subscription(graph.clone());
+    }
+}
+
+/// # Master
+///
+/// The Master handles events which then get inserted into the store.
+/// Therefore, the store is the slave of the master, processing what
+/// it gets.
+struct Master {
+    subscriptions: Subscriptions,
+    store: Rc<RefCell<Store>>,
+    registry: Rc<Registry>
+}
+
+impl Master {
+    fn new(subscriptions: Subscriptions, store: Rc<RefCell<Store>>, registry: Rc<Registry>) -> Self {
+        Master {
+            subscriptions,
+            store,
+            registry
+        }
+    }
+
+    /// Listen for new events in the registry.
+    /// see [registry::add_listener_local()]
+    fn registry_listener(&mut self) -> pipewire::registry::Listener {
+        self
+            .registry
+            .add_listener_local()
+            .global({
+                let subscriptions = self.subscriptions.clone();
+                let store = self.store.clone();
+                let registry = self.registry.clone();
+                move |global| {
+                    let mut store_borrow = store.borrow_mut();
+                    match store_borrow.add_object(&registry, global) {
+                        Ok(_) => {
+                            update_subscriptions(&subscriptions, &store_borrow);
+
+                            // Add param listeners for objects 
+                            match global.type_ {
+                                ObjectType::Node => {
+                                    node_listener(&mut store_borrow, store.clone(), global.id)
+                                }
+                                _ => {}
+                            }
+                        }
+                        Err(err) => error!("Error converting object: {err:?}"),
+                    }
+                }
+            }).register()
+    }
+
+    /// Listen for remove events in the registry.
+    /// See [Registry::add_listener_local()]
+    fn remove_registry_listener(&mut self) -> pipewire::registry::Listener {
+        self.registry
+            .add_listener_local()
+            .global_remove({
+                let subscriptions = self.subscriptions.clone();
+                let store = self.store.clone();
+                move |global| {
+                    println!("Global removed: {:?}", global);
+                    let mut store_borrow = store.borrow_mut();
+                    store_borrow.remove_object(global);
+                    update_subscriptions(&subscriptions, &store_borrow);
+                }
+            })
+            .register()
+    }
+}
+
+pub fn node_listener(store_borrow: &mut RefMut<Store>, store: Rc<RefCell<Store>>, id: u32) {
+    if let Some(node) = store_borrow.nodes.get_mut(&id) {
+        node.listener = Some(
+            node.proxy
+                .add_listener_local()
+                .param({
+                    let id = id;
+                    move |_, type_, _, _, param| {
+                        let mut store_borrow = store.borrow_mut();
+                        // There is a new reference needed, thats why there are two queries in the hashmap
+                        // TODO: Maybe there is a better way
+                        let node_clone = store_borrow.nodes.get_mut(&id).expect("The node was destroyed unexpectedly");
+                        if let Some(param) = param {
+                            let (_, value) = PodDeserializer::deserialize_any_from(param.as_bytes()).expect("deserialization failed");
+                            node_clone.on_param_event(type_, value);
+                            //debug!(
+                            //    "id: {id}, type: {type_:?}, param: {value:#?}",
+                            //);
+                        }
+                    }
+                })
+                .register(),
+        );
+        node.proxy.enum_params(0, Some(ParamType::Props), 0, u32::MAX);
     }
 }
 
@@ -79,69 +177,11 @@ pub(super) fn init_mainloop(
         let mainloop = Rc::new(mainloop);
         let registry = Rc::new(registry);
 
-        // Initialize Pipewire listeners
-        let _listener = registry
-            .add_listener_local()
-            .global({
-                let subscriptions = subscriptions.clone();
-                let store = store.clone();
-                // let sender = sender.clone();
-                let registry = registry.clone();
-                move |global| {
-                    // debug!("New object: {global:?}");
-                    let mut store_borrow = store.borrow_mut();
-                    match store_borrow.add_object(&registry, global) {
-                        Ok(_) => {
-                            update_subscriptions(&subscriptions, &store_borrow);
+        // init registry listener
+        let mut master = Master::new(subscriptions.clone(), store.clone(), registry);
 
-                            // Add param listeners for volume
-                            match global.type_ {
-                                ObjectType::Node => {
-                                    if let Some(node) = store_borrow.nodes.get_mut(&global.id) {
-                                        node.listener = Some(
-                                            node.proxy
-                                                .add_listener_local()
-                                                .param({
-                                                    // comment to hold the formatting
-                                                    let id = global.id;
-                                                    move |_, type_, _, _, param| {
-                                                        if let Some(param) = param {
-                                                            let (_, value) = PodDeserializer::deserialize_any_from(param.as_bytes()).expect("deserialization failed");
-                                                            debug!(
-                                                                "id: {id}, type: {type_:?}, param: {value:?}",
-                                                            );
-                                                        }
-                                                    }
-                                                })
-                                                .register(),
-                                        );
-                                        node.proxy.enum_params(0, Some(ParamType::Props), 0, u32::MAX);
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        Err(err) => error!("Error converting object: {err:?}"),
-                    }
-                }
-            })
-            .register();
-
-        let _remove_listener = registry
-            .add_listener_local()
-            .global_remove({
-                let subscriptions = subscriptions.clone();
-                let store = store.clone();
-                // let sender = sender.clone();
-                // let registry = registry.clone();
-                move |global| {
-                    println!("Global removed: {:?}", global);
-                    let mut store_borrow = store.borrow_mut();
-                    store_borrow.remove_object(global);
-                    update_subscriptions(&subscriptions, &store_borrow);
-                }
-            })
-            .register();
+        let _listener = master.registry_listener();
+        let _remove_listener = master.remove_registry_listener();
 
         let _receiver = receiver.attach(mainloop.loop_(), {
             let mainloop = mainloop.clone();

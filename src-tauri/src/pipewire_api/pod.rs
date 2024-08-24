@@ -49,20 +49,24 @@ impl PodSerialize for NodeProps {
 }
 
 impl NodeProps {
-    pub(super) fn get_volumes(&self) -> &[f32] {
+    pub fn new(value: Value) -> Self {
+        NodeProps { value }
+    }
+
+    pub fn get_volumes(&self) -> Option<&[f32]> {
         if let Value::Object(object) = &self.value {
             if let Some(Value::ValueArray(ValueArray::Float(channel_volumes))) = object
                 .properties
                 .iter()
                 .find_map(|prop| (prop.key == SPA_PROP_channelVolumes).then(|| &prop.value))
             {
-                return channel_volumes;
+                return Some(channel_volumes);
             }
         }
-        panic!("We checked that the field existed and had the right type on serialization");
+        return None
     }
 
-    pub(super) fn get_volumes_mut(&mut self) -> &mut Vec<f32> {
+    pub fn get_volumes_mut(&mut self) -> &mut Vec<f32> {
             if let Value::Object(object) = &mut self.value {
                 if let Some(Value::ValueArray(ValueArray::Float(channel_volumes))) = object
                     .properties
