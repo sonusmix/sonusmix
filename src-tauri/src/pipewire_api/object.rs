@@ -1,11 +1,20 @@
-use std::{fmt::Debug, rc::Rc, str::FromStr, sync::{Arc, Mutex}};
+use std::{
+    fmt::Debug,
+    rc::Rc,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 
 use derivative::Derivative;
 use log::debug;
 use pipewire::{
     keys::*,
     registry::{GlobalObject, Registry},
-    spa::{param::ParamType, pod::{deserialize::PodDeserializer, Value}, utils::dict::DictRef},
+    spa::{
+        param::ParamType,
+        pod::{deserialize::PodDeserializer, Value},
+        utils::dict::DictRef,
+    },
     types::ObjectType,
 };
 use serde::{Deserialize, Serialize};
@@ -224,7 +233,7 @@ impl Device {
 pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListener>> {
     pub id: u32,
     pub name: String,
-    pub endpoint: u32,
+    pub endpoint: EndpointId,
     pub ports: Vec<u32>,
     // #[serde(skip)]
     pub channel_volumes: Vec<f32>,
@@ -234,6 +243,13 @@ pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListene
     #[derivative(Debug = "ignore")]
     #[serde(skip)]
     pub(super) listener: L,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] // Defaults to externally tagged
+pub enum EndpointId {
+    Device(u32),
+    Client(u32),
 }
 
 impl Node {
@@ -255,7 +271,18 @@ impl Node {
                 // TODO: List all of the possible field names
                 .ok_or_else(|| object.missing_field(*NODE_NAME))?
                 .to_owned(),
-            endpoint: object.parse_fields([*DEVICE_ID, *CLIENT_ID], "integer")?,
+            endpoint: if let Some(id) = props.get(*DEVICE_ID) {
+                id.parse()
+                    .map(EndpointId::Device)
+                    .map_err(|_| object.invalid_value(*DEVICE_ID, "integer", id))?
+            } else if let Some(id) = props.get(*CLIENT_ID) {
+                id.parse()
+                    .map(EndpointId::Client)
+                    .map_err(|_| object.invalid_value(*CLIENT_ID, "integer", id))?
+            } else {
+                // TODO: Better error message, maybe listing both device and client field names
+                return Err(object.missing_field(*CLIENT_ID));
+            },
             ports: Vec::new(),
             channel_volumes: Vec::new(),
             proxy,
@@ -289,7 +316,7 @@ pub struct Port<P = pipewire::port::Port> {
 }
 
 impl Port {
-    pub (super) fn from_global(
+    pub(super) fn from_global(
         registry: &Registry,
         object: &GlobalObject<&DictRef>,
     ) -> Result<Self, ObjectConvertError> {

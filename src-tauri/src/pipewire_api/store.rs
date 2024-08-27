@@ -2,12 +2,18 @@ use std::{collections::HashMap, fmt::Debug};
 
 use pipewire::{
     registry::{GlobalObject, Registry},
-    spa::{param::ParamType, pod::{deserialize::PodDeserializer, Pod}, utils::dict::DictRef},
+    spa::{
+        param::ParamType,
+        pod::{deserialize::PodDeserializer, Pod},
+        utils::dict::DictRef,
+    },
     types::ObjectType,
 };
 
 use super::{
-    object::{Client, Device, Link, Node, ObjectConvertError, Port, PortKind}, pod::NodeProps, Graph
+    object::{Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind},
+    pod::NodeProps,
+    Graph,
 };
 
 #[derive(Debug)]
@@ -59,8 +65,17 @@ impl Store {
             // Nothing else to do (for now)
         } else if let Some(node) = self.nodes.remove(&id) {
             // If the endpoint the node belongs to exists, remove the node from it
-            if let Some(endpoint) = self.clients.get_mut(&node.endpoint) {
-                endpoint.nodes.retain(|id| *id != node.id);
+            match node.endpoint {
+                EndpointId::Device(id) => {
+                    if let Some(device) = self.devices.get_mut(&id) {
+                        device.nodes.retain(|id| *id != node.id);
+                    }
+                }
+                EndpointId::Client(id) => {
+                    if let Some(client) = self.clients.get_mut(&id) {
+                        client.nodes.retain(|id| *id != node.id);
+                    }
+                }
             }
         } else if let Some(port) = self.ports.remove(&id) {
             // If the node the port belongs to exists, remove the port from it
@@ -90,7 +105,7 @@ impl Store {
         client.nodes = self
             .nodes
             .values()
-            .filter_map(|node| (node.endpoint == client.id).then_some(node.id))
+            .filter_map(|node| (node.endpoint == EndpointId::Client(client.id)).then_some(node.id))
             .collect();
 
         // Check if the client is Sonusmix. If so, record its id.
@@ -117,7 +132,7 @@ impl Store {
         device.nodes = self
             .nodes
             .values()
-            .filter_map(|node| (node.endpoint == device.id).then_some(node.id))
+            .filter_map(|node| (node.endpoint == EndpointId::Device(device.id)).then_some(node.id))
             .collect();
 
         // Add the device
@@ -141,8 +156,17 @@ impl Store {
             .collect();
 
         // If the endpoint the node belongs to exists, add the node to it
-        if let Some(endpoint) = self.clients.get_mut(&node.endpoint) {
-            endpoint.nodes.push(node.id);
+        match node.endpoint {
+            EndpointId::Device(id) => {
+                if let Some(device) = self.devices.get_mut(&id) {
+                    device.nodes.push(node.id);
+                }
+            }
+            EndpointId::Client(id) => {
+                if let Some(client) = self.clients.get_mut(&id) {
+                    client.nodes.push(node.id);
+                }
+            }
         }
 
         // Add the node
@@ -201,23 +225,22 @@ impl Store {
         Ok(())
     }
 
-    pub(super) fn change_node(
-        &mut self,
-        _type_: ParamType,
-        id: u32,
-        pod: Option<&Pod>
-    ) {
+    pub(super) fn change_node(&mut self, _type_: ParamType, id: u32, pod: Option<&Pod>) {
         // abort if no pod is available
         let pod = match pod {
             Some(p) => p,
-            None => return
+            None => return,
         };
 
-        let node = self.nodes.get_mut(&id).expect("The node was destroyed unexpectedly");
+        let node = self
+            .nodes
+            .get_mut(&id)
+            .expect("The node was destroyed unexpectedly");
 
         // deserialize the pod
-        let (_, value) = PodDeserializer::deserialize_any_from(pod.as_bytes()).expect("Deserialization failed");
-        
+        let (_, value) =
+            PodDeserializer::deserialize_any_from(pod.as_bytes()).expect("Deserialization failed");
+
         // save volume if node has volume
         if let Some(volume) = NodeProps::new(value).get_volumes() {
             node.channel_volumes = volume.to_vec();
