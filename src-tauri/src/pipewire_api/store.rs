@@ -2,13 +2,12 @@ use std::{collections::HashMap, fmt::Debug};
 
 use pipewire::{
     registry::{GlobalObject, Registry},
-    spa::utils::dict::DictRef,
+    spa::{param::ParamType, pod::{deserialize::PodDeserializer, Pod}, utils::dict::DictRef},
     types::ObjectType,
 };
 
 use super::{
-    object::{Client, Device, Link, Node, ObjectConvertError, Port, PortKind},
-    Graph,
+    object::{Client, Device, Link, Node, ObjectConvertError, Port, PortKind}, pod::NodeProps, Graph
 };
 
 #[derive(Debug)]
@@ -177,6 +176,7 @@ impl Store {
 
         // Add the port
         self.ports.insert(port.id, port);
+
         Ok(())
     }
 
@@ -199,6 +199,29 @@ impl Store {
         // Add the link
         self.links.insert(link.id, link);
         Ok(())
+    }
+
+    pub(super) fn change_node(
+        &mut self,
+        _type_: ParamType,
+        id: u32,
+        pod: Option<&Pod>
+    ) {
+        // abort if no pod is available
+        let pod = match pod {
+            Some(p) => p,
+            None => return
+        };
+
+        let node = self.nodes.get_mut(&id).expect("The node was destroyed unexpectedly");
+
+        // deserialize the pod
+        let (_, value) = PodDeserializer::deserialize_any_from(pod.as_bytes()).expect("Deserialization failed");
+        
+        // save volume if node has volume
+        if let Some(volume) = NodeProps::new(value).get_volumes() {
+            node.channel_volumes = volume.to_vec();
+        }
     }
 
     pub fn dump_graph(&self) -> Graph {

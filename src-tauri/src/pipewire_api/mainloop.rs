@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 
 use crate::pipewire_api::pod::NodeProps;
 
-use super::{object::ParamListener, store::Store, FromPipewireMessage, Subscriptions, ToPipewireMessage};
+use super::{store::Store, FromPipewireMessage, Subscriptions, ToPipewireMessage};
 
 fn update_subscriptions(subscriptions: &Subscriptions, store: &Store) {
     let graph = Arc::new(store.dump_graph());
@@ -111,18 +111,9 @@ pub fn node_listener(store_borrow: &mut RefMut<Store>, store: Rc<RefCell<Store>>
                 .add_listener_local()
                 .param({
                     let id = id;
-                    move |_, type_, _, _, param| {
+                    move |_, type_, _, _, pod| {
                         let mut store_borrow = store.borrow_mut();
-                        // There is a new reference needed, thats why there are two queries in the hashmap
-                        // TODO: Maybe there is a better way
-                        let node_clone = store_borrow.nodes.get_mut(&id).expect("The node was destroyed unexpectedly");
-                        if let Some(param) = param {
-                            let (_, value) = PodDeserializer::deserialize_any_from(param.as_bytes()).expect("deserialization failed");
-                            node_clone.on_param_event(type_, value);
-                            //debug!(
-                            //    "id: {id}, type: {type_:?}, param: {value:#?}",
-                            //);
-                        }
+                        store_borrow.change_node(type_, id, pod)
                     }
                 })
                 .register(),

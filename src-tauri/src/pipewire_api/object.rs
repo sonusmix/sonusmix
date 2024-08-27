@@ -276,14 +276,6 @@ impl Node {
     }
 }
 
-impl ParamListener for Node {
-    fn on_param_event(&mut self, _param_type: ParamType, param: Value) {
-        if let Some(volume) = NodeProps::new(param).get_volumes() {
-            self.channel_volumes = volume.to_vec();
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Port<P = pipewire::port::Port> {
@@ -389,11 +381,4 @@ impl Link {
             proxy: (),
         }
     }
-}
-
-/// Parameter listener
-///
-/// Local processing of parameter events dispatched from Master
-pub trait ParamListener {
-    fn on_param_event(&mut self, param_type: ParamType, param: Value);
 }
