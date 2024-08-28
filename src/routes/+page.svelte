@@ -1,46 +1,51 @@
 <script>
     import { pipewireStore } from "$lib/backend";
+    import Node from "$lib/Node.svelte";
+    import NodeList from "$lib/NodeList.svelte";
     import { invoke } from "@tauri-apps/api/core";
+
+    /** @type {number} */
+    let vSplit = 0.6;
+    let hSplit = 0.5;
+
+    $: vBasis = vSplit / (1 - vSplit);
+    $: hBasis = hSplit / (1 - hSplit);
+
+    const dummyData = [
+        { name: "Microphone", volume: 70 },
+        { name: "Line In", volume: 50 },
+        { name: "Chromium", volume: 100 },
+    ];
 </script>
 
-<h3>Clients</h3>
-<ul>
-    {#each $pipewireStore.clients.values() as client (client.id)}
-        <li>
-            {JSON.stringify(client)}
-            <ul>
-                {#each client.nodes.map( (id) => $pipewireStore.nodes.get(id) ) as node (node.id)}
-                    <li>
-                        {JSON.stringify(node)}
-                        <ul>
-                            {#each node.ports.map( (id) => $pipewireStore.ports.get(id), ) as port (port.id)}
-                                <li>{JSON.stringify(port)}</li>
-                            {/each}
-                        </ul>
-                    </li>
-                {/each}
-            </ul>
-        </li>
-    {/each}
-</ul>
+<div class="flex flex-col min-h-screen h-screen">
+    <div
+        class="flex-1 flex flex-row min-h-0"
+        id="v-split-top"
+        style="flex-basis: calc(100% * {vSplit})"
+    >
+        <div
+            class="flex-1 overflow-y-scroll"
+            style="flex-basis: calc(100% * {hSplit})"
+        >
+            <NodeList />
+        </div>
+        <div class="bg-base-content w-1"></div>
+        <div
+            class="flex-1 overflow-y-scroll"
+            style="flex-basis: calc(100% * {1 - hSplit})"
+        >
+            <NodeList />
+        </div>
+    </div>
+    <div class="flex-none bg-base-content h-1"></div>
+    <div
+        class="flex-1 overflow-x-scroll min-h-96"
+        style="flex-basis: calc(100% * {1 - vSplit})"
+    >
+        <NodeList row />
+    </div>
+</div>
 
-<h3>Devices</h3>
-<ul>
-    {#each $pipewireStore.devices.values() as device (device.id)}
-        <li>
-            {JSON.stringify(device)}
-            <ul>
-                {#each device.nodes.map( (id) => $pipewireStore.nodes.get(id) ) as node (node.id)}
-                    <li>
-                        {JSON.stringify(node)}
-                        <ul>
-                            {#each node.ports.map( (id) => $pipewireStore.ports.get(id), ) as port (port.id)}
-                                <li>{JSON.stringify(port)}</li>
-                            {/each}
-                        </ul>
-                    </li>
-                {/each}
-            </ul>
-        </li>
-    {/each}
-</ul>
+<style>
+</style>
