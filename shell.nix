@@ -7,7 +7,7 @@ mkShell {
   nativeBuildInputs = [
     cargo
     pkg-config
-    corepack
+    # corepack
     nodejs_18
     openssl
     pango
@@ -19,6 +19,11 @@ mkShell {
   ];
 
   LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+
+  shellHook = ''
+  echo NPM INSTALL
+  npm install
+  '';
 
   buildInputs = [];
 }
