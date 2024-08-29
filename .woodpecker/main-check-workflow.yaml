@@ -7,6 +7,4 @@ steps:
     image: nixos/nix
     commands:
       - nix-channel --update
-      - nix-shell --pure
-      - npm run check
-      - cd src-tauri && cargo check
+      - nix-shell --command "npm run check && cd src-tauri && cargo check"
