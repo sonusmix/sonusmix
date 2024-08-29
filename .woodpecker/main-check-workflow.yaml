@@ -1,0 +1,12 @@
+when:
+  - event: push
+    branch: main
+
+steps:
+  - name: svelte and cargo check
+    image: nixos/nix
+    commands:
+      - nix-channel --update
+      - nix-shell
+      - npm run check
+      - cd src-tauri && cargo check
