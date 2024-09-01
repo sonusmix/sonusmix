@@ -7,23 +7,12 @@ mkShell {
   nativeBuildInputs = [
     cargo
     pkg-config
-    # corepack
-    nodejs_18
-    openssl
-    pango
-    gtk3
-    pipewire
+    gtk4
     clang
-    libsoup_3
-    webkitgtk_4_1
+    pipewire
   ];
 
   LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-
-  shellHook = ''
-  echo NPM INSTALL
-  npm install
-  '';
 
   buildInputs = [];
 }
