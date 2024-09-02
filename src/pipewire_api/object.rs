@@ -123,7 +123,7 @@ impl<'a> ObjectConvertErrorExt for GlobalObject<&'a DictRef> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Client<P = pipewire::client::Client> {
     pub id: u32,
@@ -175,7 +175,7 @@ impl Client<pipewire::client::Client> {
     }
 }
 
-#[derive(Derivative, Serialize, Deserialize)]
+#[derive(Derivative, Clone, Serialize, Deserialize)]
 #[derivative(Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Device<P = pipewire::device::Device, L = Option<pipewire::device::DeviceListener>> {
@@ -227,7 +227,7 @@ impl Device {
     }
 }
 
-#[derive(Derivative, Serialize, Deserialize)]
+#[derive(Derivative, Clone, Serialize, Deserialize)]
 #[derivative(Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListener>> {
@@ -303,7 +303,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Port<P = pipewire::port::Port> {
     pub id: u32,
@@ -368,7 +368,7 @@ impl FromStr for PortKind {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Link<P = pipewire::link::Link> {
     pub id: u32,

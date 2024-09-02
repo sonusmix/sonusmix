@@ -159,7 +159,7 @@ impl SimpleComponent for App {
                 debug!("got new graph");
                 self.graph.replace(graph.as_ref().clone());
                 // TODO: Update parts parts of the app that depend on the graph
-                self.sources.broadcast(NodeMsg::Refresh);
+                self.sources.broadcast(NodeMsg::Refresh(self.graph.clone()));
             }
             Msg::OpenAbout => {
                 self.about_component = Some(AboutComponent::builder().launch(()).detach());

@@ -4,18 +4,18 @@ mod store;
 mod pod;
 
 use std::{
-    sync::{Arc, Mutex},
-    thread,
+    collections::HashMap, sync::{Arc, Mutex}, thread
 };
 
 use anyhow::{Context, Result};
 use log::error;
 use mainloop::init_mainloop;
-use object::{Client, Device, Link, Node, Port};
 use serde::{Deserialize, Serialize};
 use slotmap::{new_key_type, DenseSlotMap};
 use thiserror::Error;
 use tokio::sync::mpsc;
+
+pub use object::PortKind;
 
 const SONUSMIX_APP_NAME: &'static str = "sonusmix";
 
@@ -95,18 +95,25 @@ impl Drop for PipewireHandle {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+pub type Client = object::Client<()>;
+pub type Device = object::Device<(), ()>;
+pub type Node = object::Node<(), ()>;
+pub type Port = object::Port<()>;
+pub type Link = object::Link<()>;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Graph {
-    pub clients: Vec<Client<()>>,
-    pub devices: Vec<Device<(), ()>>,
-    pub nodes: Vec<Node<(), ()>>,
-    pub ports: Vec<Port<()>>,
-    pub links: Vec<Link<()>>,
+    pub clients: HashMap<u32, Client>,
+    pub devices: HashMap<u32, Device>,
+    pub nodes: HashMap<u32, Node>,
+    pub ports: HashMap<u32, Port>,
+    pub links: HashMap<u32, Link>,
 }
 
 #[derive(Debug)]
 enum ToPipewireMessage {
     UpdateOne(PipewireSubscriptionKey),
+    UpdateAll,
     Exit,
 }
 

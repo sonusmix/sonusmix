@@ -247,13 +247,14 @@ impl Store {
         }
     }
 
+    #[rustfmt::skip] // Rustfmt puts each call on its own line which is really hard to read
     pub fn dump_graph(&self) -> Graph {
         Graph {
-            clients: self.clients.values().map(Client::without_proxy).collect(),
-            devices: self.devices.values().map(Device::without_proxy).collect(),
-            nodes: self.nodes.values().map(Node::without_proxy).collect(),
-            ports: self.ports.values().map(Port::without_proxy).collect(),
-            links: self.links.values().map(Link::without_proxy).collect(),
+            clients: self.clients.iter().map(|(id, client)| (*id, client.without_proxy())).collect(),
+            devices: self.devices.iter().map(|(id, device)| (*id, device.without_proxy())).collect(),
+            nodes: self.nodes.iter().map(|(id, node)| (*id, node.without_proxy())).collect(),
+            ports: self.ports.iter().map(|(id, port)| (*id, port.without_proxy())).collect(),
+            links: self.links.iter().map(|(id, link)| (*id, link.without_proxy())).collect(),
         }
     }
 }

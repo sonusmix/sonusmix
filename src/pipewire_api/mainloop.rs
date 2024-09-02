@@ -1,4 +1,10 @@
-use std::{cell::{RefCell, RefMut}, ops::Deref, rc::Rc, sync::Arc, thread::JoinHandle};
+use std::{
+    cell::{RefCell, RefMut},
+    ops::Deref,
+    rc::Rc,
+    sync::Arc,
+    thread::JoinHandle,
+};
 
 use anyhow::{Context, Result};
 
@@ -12,7 +18,7 @@ use pipewire::{
     spa::{
         param::ParamType,
         pod::{deserialize::PodDeserializer, PodObject},
-        sys::SPA_PROP_channelVolumes,
+        sys::{SPA_PARAM_Props, SPA_PROP_channelVolumes},
         utils::Id,
     },
     types::ObjectType,
@@ -41,40 +47,43 @@ fn update_subscriptions(subscriptions: &Subscriptions, store: &Store) {
 /// Therefore, the store is the slave of the master, processing what
 /// it gets.
 struct Master {
-    subscriptions: Subscriptions,
     store: Rc<RefCell<Store>>,
-    registry: Rc<Registry>
+    registry: Rc<Registry>,
+    sender: pipewire::channel::Sender<ToPipewireMessage>,
 }
 
 impl Master {
-    fn new(subscriptions: Subscriptions, store: Rc<RefCell<Store>>, registry: Rc<Registry>) -> Self {
+    fn new(
+        store: Rc<RefCell<Store>>,
+        registry: Rc<Registry>,
+        sender: pipewire::channel::Sender<ToPipewireMessage>,
+    ) -> Self {
         Master {
-            subscriptions,
             store,
-            registry
+            registry,
+            sender,
         }
     }
 
     /// Listen for new events in the registry.
-    /// see [registry::add_listener_local()]
+    /// see [Registry::add_listener_local()]
     fn registry_listener(&mut self) -> pipewire::registry::Listener {
-        self
-            .registry
+        self.registry
             .add_listener_local()
             .global({
-                let subscriptions = self.subscriptions.clone();
                 let store = self.store.clone();
                 let registry = self.registry.clone();
+                let sender = self.sender.clone();
                 move |global| {
-                    let mut store_borrow = store.borrow_mut();
-                    match store_borrow.add_object(&registry, global) {
+                    let result = { store.borrow_mut().add_object(&registry, global) };
+                    match result {
                         Ok(_) => {
-                            update_subscriptions(&subscriptions, &store_borrow);
+                            sender.send(ToPipewireMessage::UpdateAll);
 
-                            // Add param listeners for objects 
+                            // Add param listeners for objects
                             match global.type_ {
                                 ObjectType::Node => {
-                                    node_listener(&mut store_borrow, store.clone(), global.id)
+                                    node_listener(store.clone(), sender.clone(), global.id)
                                 }
                                 _ => {}
                             }
@@ -82,7 +91,8 @@ impl Master {
                         Err(err) => error!("Error converting object: {err:?}"),
                     }
                 }
-            }).register()
+            })
+            .register()
     }
 
     /// Listen for remove events in the registry.
@@ -91,21 +101,25 @@ impl Master {
         self.registry
             .add_listener_local()
             .global_remove({
-                let subscriptions = self.subscriptions.clone();
                 let store = self.store.clone();
+                let sender = self.sender.clone();
                 move |global| {
                     println!("Global removed: {:?}", global);
                     let mut store_borrow = store.borrow_mut();
                     store_borrow.remove_object(global);
-                    update_subscriptions(&subscriptions, &store_borrow);
+                    sender.send(ToPipewireMessage::UpdateAll);
                 }
             })
             .register()
     }
 }
 
-pub fn node_listener(store_borrow: &mut RefMut<Store>, store: Rc<RefCell<Store>>, id: u32) {
-    if let Some(node) = store_borrow.nodes.get_mut(&id) {
+pub fn node_listener(
+    store: Rc<RefCell<Store>>,
+    sender: pipewire::channel::Sender<ToPipewireMessage>,
+    id: u32,
+) {
+    if let Some(node) = store.clone().borrow_mut().nodes.get_mut(&id) {
         node.listener = Some(
             node.proxy
                 .add_listener_local()
@@ -113,12 +127,16 @@ pub fn node_listener(store_borrow: &mut RefMut<Store>, store: Rc<RefCell<Store>>
                     let id = id;
                     move |_, type_, _, _, pod| {
                         let mut store_borrow = store.borrow_mut();
-                        store_borrow.change_node(type_, id, pod)
+                        store_borrow.change_node(type_, id, pod);
+                        debug!("node changed: {}", id);
+                        sender.send(ToPipewireMessage::UpdateAll);
                     }
                 })
                 .register(),
         );
-        node.proxy.enum_params(0, Some(ParamType::Props), 0, u32::MAX);
+        node.proxy
+            .enum_params(0, Some(ParamType::Props), 0, u32::MAX);
+        node.proxy.subscribe_params(&[ParamType::Props]);
     }
 }
 
@@ -133,6 +151,7 @@ pub(super) fn init_mainloop(
     let (from_pw_tx, from_pw_rx) = mpsc::unbounded_channel();
     let (init_status_tx, init_status_rx) = oneshot::channel::<Result<()>>();
 
+    let to_pw_tx_clone = to_pw_tx.clone();
     let handle = std::thread::spawn(move || {
         let sender = from_pw_tx;
         let receiver = to_pw_rx;
@@ -169,7 +188,7 @@ pub(super) fn init_mainloop(
         let registry = Rc::new(registry);
 
         // init registry listener
-        let mut master = Master::new(subscriptions.clone(), store.clone(), registry);
+        let mut master = Master::new(store.clone(), registry, to_pw_tx_clone);
 
         let _listener = master.registry_listener();
         let _remove_listener = master.remove_registry_listener();
@@ -184,7 +203,19 @@ pub(super) fn init_mainloop(
                         .expect("subscriptions lock poisoned")
                         .get(key)
                     {
-                        subscription({ Arc::new(store.borrow().dump_graph()) });
+                        let graph = { Arc::new(store.borrow().dump_graph()) };
+                        subscription(graph);
+                    }
+                }
+                ToPipewireMessage::UpdateAll => {
+                    let graph = { Arc::new(store.borrow().dump_graph()) };
+
+                    for subscription in subscriptions
+                        .lock()
+                        .expect("subscriptions lock poisoned")
+                        .values()
+                    {
+                        subscription(graph.clone());
                     }
                 }
                 ToPipewireMessage::Exit => mainloop.quit(),
