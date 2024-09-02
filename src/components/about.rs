@@ -1,7 +1,7 @@
-use relm4::{gtk, ComponentParts, ComponentSender, SimpleComponent};
 use gtk::prelude::*;
+use relm4::{gtk, ComponentParts, ComponentSender, SimpleComponent};
 
-use crate::LICENSE_STRING;
+const LICENSE_STRING: &'static str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/LICENSE"));
 
 pub struct AboutComponent;
 
