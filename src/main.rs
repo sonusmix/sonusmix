@@ -3,6 +3,7 @@ mod pipewire_api;
 
 use components::app::App;
 use log::debug;
+use pipewire_api::PipewireHandle;
 use relm4::RelmApp;
 
 fn main() {
@@ -12,6 +13,7 @@ fn main() {
 
     debug!("Hello, world!");
 
+    let pipewire_handle = PipewireHandle::init().expect("failed to connect to Pipewire");
     let app = RelmApp::new("sonusmix");
-    app.run::<App>(());
+    app.run::<App>(pipewire_handle);
 }
