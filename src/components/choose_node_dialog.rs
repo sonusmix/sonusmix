@@ -87,7 +87,6 @@ impl SimpleComponent for ChooseNodeDialog {
     fn update(&mut self, msg: ChooseNodeDialogMsg, sender: ComponentSender<Self>) {
         match msg {
             ChooseNodeDialogMsg::Show(list, node_ids) => {
-                debug!("got nodes: {node_ids:?}");
                 self.list = list;
                 {
                     let mut factory = self.nodes.guard();

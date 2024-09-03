@@ -128,7 +128,6 @@ pub fn node_listener(
                     move |_, type_, _, _, pod| {
                         let mut store_borrow = store.borrow_mut();
                         store_borrow.change_node(type_, id, pod);
-                        debug!("node changed: {}", id);
                         sender.send(ToPipewireMessage::UpdateAll);
                     }
                 })

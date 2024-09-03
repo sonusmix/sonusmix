@@ -91,7 +91,6 @@ impl FactoryComponent for Node {
     fn update(&mut self, msg: NodeMsg, sender: FactorySender<Self>) {
         match msg {
             NodeMsg::Refresh(graph) => {
-                debug!("node updated");
                 self.node = graph.borrow().nodes.get(&self.node.id).expect("node removed").clone();
                 // TODO: Handle what happens if the node is not found
             }
