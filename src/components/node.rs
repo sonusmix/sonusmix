@@ -1,12 +1,12 @@
-use std::{cell::RefCell, rc::Rc, sync::LazyLock};
+use std::sync::Arc;
 
-use gtk::glib::property::PropertyGet;
-use log::debug;
-use relm4::gtk::pango::AttrList;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
-use crate::pipewire_api::{Graph, Node as PwNode};
+use crate::{
+    graph_events::subscribe_to_pipewire,
+    pipewire_api::{Graph, Node as PwNode},
+};
 
 pub struct Node {
     pub node: PwNode,
@@ -14,7 +14,7 @@ pub struct Node {
 
 #[derive(Debug, Clone)]
 pub enum NodeMsg {
-    Refresh(Rc<RefCell<Graph>>),
+    Refresh(Arc<Graph>),
 }
 
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ pub enum NodeOutput {}
 
 #[relm4::factory(pub)]
 impl FactoryComponent for Node {
-    type Init = (Rc<RefCell<Graph>>, u32);
+    type Init = u32;
     type Input = NodeMsg;
     type Output = NodeOutput;
     type CommandOutput = ();
@@ -73,14 +73,9 @@ impl FactoryComponent for Node {
         }
     }
 
-    fn init_model(
-        (graph, id): (Rc<RefCell<Graph>>, u32),
-        _index: &DynamicIndex,
-        _sender: FactorySender<Self>,
-    ) -> Self {
+    fn init_model(id: u32, _index: &DynamicIndex, sender: FactorySender<Self>) -> Self {
         Self {
-            node: graph
-                .borrow()
+            node: subscribe_to_pipewire(sender.input_sender(), NodeMsg::Refresh)
                 .nodes
                 .get(&id)
                 .expect("node component failed to find matching key on init")
@@ -88,10 +83,14 @@ impl FactoryComponent for Node {
         }
     }
 
-    fn update(&mut self, msg: NodeMsg, sender: FactorySender<Self>) {
+    fn update(&mut self, msg: NodeMsg, _sender: FactorySender<Self>) {
         match msg {
             NodeMsg::Refresh(graph) => {
-                self.node = graph.borrow().nodes.get(&self.node.id).expect("node removed").clone();
+                self.node = graph
+                    .nodes
+                    .get(&self.node.id)
+                    .expect("node removed")
+                    .clone();
                 // TODO: Handle what happens if the node is not found
             }
         }

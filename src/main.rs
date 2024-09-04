@@ -1,4 +1,5 @@
 mod components;
+mod graph_events;
 mod pipewire_api;
 
 use components::app::App;
@@ -14,6 +15,13 @@ fn main() {
     debug!("Hello, world!");
 
     let pipewire_handle = PipewireHandle::init().expect("failed to connect to Pipewire");
+    graph_events::link_pipewire(&pipewire_handle);
+
     let app = RelmApp::new("sonusmix");
-    app.run::<App>(pipewire_handle);
+    app.run::<App>(pipewire_handle.sender());
+
+    // Comment the above lines and uncomment these to test without the frontend
+    // let mut s = String::new();
+    // let _ = std::io::stdin().read_line(&mut s);
+    // std::hint::black_box(pipewire_handle);
 }

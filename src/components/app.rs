@@ -6,18 +6,18 @@ use log::debug;
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::pipewire_api::{Graph, PipewireHandle, PortKind};
+use crate::graph_events::subscribe_to_pipewire;
+use crate::pipewire_api::{Graph, PortKind, ToPipewireMessage};
 
 use super::about::AboutComponent;
-use super::choose_node_dialog::{
-    self, ChooseNodeDialog, ChooseNodeDialogMsg, ChooseNodeDialogOutput,
-};
-use super::node::{Node, NodeMsg, NodeOutput};
+use super::choose_node_dialog::{ChooseNodeDialog, ChooseNodeDialogMsg, ChooseNodeDialogOutput};
+use super::node::Node;
 
 pub struct App {
-    pipewire_handle: PipewireHandle,
-    graph: Rc<RefCell<Graph>>,
+    pipewire_sender: UnboundedSender<ToPipewireMessage>,
+    graph: Arc<Graph>,
     about_component: Option<Controller<AboutComponent>>,
     sources: FactoryVecDeque<Node>,
     sinks: FactoryVecDeque<Node>,
@@ -35,7 +35,7 @@ pub enum Msg {
 
 #[relm4::component(pub)]
 impl SimpleComponent for App {
-    type Init = PipewireHandle;
+    type Init = UnboundedSender<ToPipewireMessage>;
     type Input = Msg;
     type Output = ();
 
@@ -111,16 +111,11 @@ impl SimpleComponent for App {
     }
 
     fn init(
-        pipewire_handle: PipewireHandle,
+        pipewire_sender: UnboundedSender<ToPipewireMessage>,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        {
-            let sender = sender.clone();
-            pipewire_handle.subscribe(move |graph| sender.input(Msg::UpdateGraph(graph)));
-        }
-
-        let graph = Rc::new(RefCell::new(Graph::default()));
+        let graph = subscribe_to_pipewire(sender.input_sender(), |graph| Msg::UpdateGraph(graph));
 
         let sources = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -137,7 +132,7 @@ impl SimpleComponent for App {
             });
 
         let model = App {
-            pipewire_handle,
+            pipewire_sender,
             about_component: None,
             graph,
             sources,
@@ -156,10 +151,7 @@ impl SimpleComponent for App {
         match msg {
             Msg::Ignore => {}
             Msg::UpdateGraph(graph) => {
-                self.graph.replace(graph.as_ref().clone());
-                // TODO: Update parts parts of the app that depend on the graph
-                self.sources.broadcast(NodeMsg::Refresh(self.graph.clone()));
-                self.sinks.broadcast(NodeMsg::Refresh(self.graph.clone()));
+                self.graph = graph;
             }
             Msg::OpenAbout => {
                 self.about_component = Some(AboutComponent::builder().launch(()).detach());
@@ -174,15 +166,15 @@ impl SimpleComponent for App {
                     .sender()
                     .send(ChooseNodeDialogMsg::Show(
                         list,
-                        get_inactive_nodes(self.graph.clone(), active.iter(), list),
+                        get_inactive_nodes(self.graph.as_ref(), active.iter(), list),
                     ));
             }
             Msg::NodeChosen(list, id) => match list {
                 PortKind::Source => {
-                    self.sources.guard().push_back((self.graph.clone(), id));
+                    self.sources.guard().push_back(id);
                 }
                 PortKind::Sink => {
-                    self.sinks.guard().push_back((self.graph.clone(), id));
+                    self.sinks.guard().push_back(id);
                 }
             },
         };
@@ -190,12 +182,11 @@ impl SimpleComponent for App {
 }
 
 fn get_inactive_nodes<'a>(
-    graph: Rc<RefCell<Graph>>,
+    graph: &Graph,
     active: impl IntoIterator<Item = &'a Node>,
     list: PortKind,
 ) -> Vec<u32> {
     let active: Vec<u32> = active.into_iter().map(|node| node.node.id).collect();
-    let graph = graph.borrow();
     graph
         .nodes
         .values()

@@ -75,6 +75,10 @@ impl PipewireHandle {
             .expect("subscriptions lock poisoned")
             .remove(key);
     }
+
+    pub fn sender(&self) -> mpsc::UnboundedSender<ToPipewireMessage> {
+        self.pipewire_sender.clone()
+    }
 }
 
 impl Drop for PipewireHandle {
@@ -111,7 +115,7 @@ pub struct Graph {
 }
 
 #[derive(Debug)]
-enum ToPipewireMessage {
+pub enum ToPipewireMessage {
     UpdateOne(PipewireSubscriptionKey),
     UpdateAll,
     Exit,

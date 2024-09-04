@@ -1,5 +1,5 @@
 use std::convert::Infallible;
-use std::{cell::RefCell, rc::Rc};
+use std::sync::Arc;
 
 use gtk::glib::Propagation;
 use log::debug;
@@ -10,7 +10,7 @@ use relm4::prelude::*;
 use crate::pipewire_api::{Graph, Node, PortKind};
 
 pub struct ChooseNodeDialog {
-    graph: Rc<RefCell<Graph>>,
+    graph: Arc<Graph>,
     list: PortKind,
     nodes: FactoryVecDeque<ChooseNodeItem>,
     visible: bool,
@@ -33,7 +33,7 @@ pub enum ChooseNodeDialogOutput {
 
 #[relm4::component(pub)]
 impl SimpleComponent for ChooseNodeDialog {
-    type Init = Rc<RefCell<Graph>>;
+    type Init = Arc<Graph>;
     type Input = ChooseNodeDialogMsg;
     type Output = ChooseNodeDialogOutput;
 
@@ -61,7 +61,7 @@ impl SimpleComponent for ChooseNodeDialog {
     }
 
     fn init(
-        graph: Rc<RefCell<Graph>>,
+        graph: Arc<Graph>,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -91,10 +91,9 @@ impl SimpleComponent for ChooseNodeDialog {
                 {
                     let mut factory = self.nodes.guard();
                     factory.clear();
-                    let graph = self.graph.borrow();
                     for node in node_ids
                         .into_iter()
-                        .filter_map(|id| graph.nodes.get(&id))
+                        .filter_map(|id| self.graph.nodes.get(&id))
                         .cloned()
                     {
                         factory.push_back(node);
