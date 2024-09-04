@@ -14,8 +14,8 @@ fn main() {
 
     debug!("Hello, world!");
 
-    let pipewire_handle = PipewireHandle::init().expect("failed to connect to Pipewire");
-    graph_events::link_pipewire(&pipewire_handle);
+    let update_fn = graph_events::link_pipewire();
+    let pipewire_handle = PipewireHandle::init(update_fn).expect("failed to connect to Pipewire");
 
     let app = RelmApp::new("sonusmix");
     app.run::<App>(pipewire_handle.sender());

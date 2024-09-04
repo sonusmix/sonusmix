@@ -1,12 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 
 use log::debug;
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
-use tokio::sync::mpsc::UnboundedSender;
 
 use crate::graph_events::subscribe_to_pipewire;
 use crate::pipewire_api::{Graph, PortKind, ToPipewireMessage};
@@ -16,7 +15,7 @@ use super::choose_node_dialog::{ChooseNodeDialog, ChooseNodeDialogMsg, ChooseNod
 use super::node::Node;
 
 pub struct App {
-    pipewire_sender: UnboundedSender<ToPipewireMessage>,
+    pipewire_sender: mpsc::Sender<ToPipewireMessage>,
     graph: Arc<Graph>,
     about_component: Option<Controller<AboutComponent>>,
     sources: FactoryVecDeque<Node>,
@@ -35,7 +34,7 @@ pub enum Msg {
 
 #[relm4::component(pub)]
 impl SimpleComponent for App {
-    type Init = UnboundedSender<ToPipewireMessage>;
+    type Init = mpsc::Sender<ToPipewireMessage>;
     type Input = Msg;
     type Output = ();
 
@@ -111,7 +110,7 @@ impl SimpleComponent for App {
     }
 
     fn init(
-        pipewire_sender: UnboundedSender<ToPipewireMessage>,
+        pipewire_sender: mpsc::Sender<ToPipewireMessage>,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {

@@ -1,82 +1,41 @@
 mod mainloop;
 mod object;
-mod store;
 mod pod;
+mod store;
 
-use std::{
-    collections::HashMap, sync::{Arc, Mutex}, thread
-};
+use std::{collections::HashMap, sync::mpsc, thread};
 
 use anyhow::{Context, Result};
 use log::error;
 use mainloop::init_mainloop;
 use serde::{Deserialize, Serialize};
-use slotmap::{new_key_type, DenseSlotMap};
 use thiserror::Error;
-use tokio::sync::mpsc;
 
 pub use object::PortKind;
 
 const SONUSMIX_APP_NAME: &'static str = "sonusmix";
 
-type Subscriptions =
-    Arc<Mutex<DenseSlotMap<PipewireSubscriptionKey, Box<dyn Fn(Arc<Graph>) + Send + 'static>>>>;
-
 pub struct PipewireHandle {
     pipewire_thread_handle: Option<thread::JoinHandle<()>>,
     adapter_thread_handle: Option<thread::JoinHandle<Result<(), PipewireChannelError>>>,
-    // pipewire_listener_handle: Option<tauri::async_runtime::JoinHandle<()>>,
-    pipewire_sender: mpsc::UnboundedSender<ToPipewireMessage>,
-    // subscription_sender: mpsc::UnboundedSender<SubscriptionMessage>,
-    subscriptions: Subscriptions,
+    pipewire_sender: mpsc::Sender<ToPipewireMessage>,
 }
 
 impl PipewireHandle {
-    pub fn init() -> Result<Self> {
-        let subscriptions = Arc::new(Mutex::new(DenseSlotMap::with_key()));
-        let (pipewire_thread_handle, pw_sender, pw_receiver) = init_mainloop(subscriptions.clone())
-            .context("Error initializing the Pipewire thread")?;
+    pub fn init(update_fn: impl Fn(Graph) + Send + 'static) -> Result<Self> {
+        // TODO: Decide if we actually need a dedicated channel and message type to communicate
+        // from Pipewire to the main thread, or if the graph updates are enough
+        let (pipewire_thread_handle, pw_sender, pw_receiver) =
+            init_mainloop(update_fn).context("Error initializing the Pipewire thread")?;
         let (adapter_thread_handle, adapter_sender) = init_adapter(pw_sender);
-        // let (subscription_sender, pipewire_listener_handle) =
-        //     init_pipewire_listener(store.clone(), subscriptions.clone(), pw_receiver);
         Ok(Self {
             pipewire_thread_handle: Some(pipewire_thread_handle),
             adapter_thread_handle: Some(adapter_thread_handle),
-            // pipewire_listener_handle: Some(pipewire_listener_handle),
             pipewire_sender: adapter_sender,
-            // subscription_sender,
-            subscriptions,
         })
     }
 
-    pub fn subscribe(&self, f: impl Fn(Arc<Graph>) + Send + 'static) -> PipewireSubscriptionKey {
-        // Subscribe to changes
-        let key = {
-            self.subscriptions
-                .lock()
-                .expect("subscriptions lock poisoned")
-                .insert(Box::new(f))
-        };
-
-        // Send one update now
-        self.update_subscriber(key);
-        key
-    }
-
-    pub fn update_subscriber(&self, key: PipewireSubscriptionKey) {
-        self.pipewire_sender
-            .send(ToPipewireMessage::UpdateOne(key))
-            .expect("Pipewire channel closed");
-    }
-
-    pub fn unsubscribe(&self, key: PipewireSubscriptionKey) {
-        self.subscriptions
-            .lock()
-            .expect("subscriptions lock poisoned")
-            .remove(key);
-    }
-
-    pub fn sender(&self) -> mpsc::UnboundedSender<ToPipewireMessage> {
+    pub fn sender(&self) -> mpsc::Sender<ToPipewireMessage> {
         self.pipewire_sender.clone()
     }
 }
@@ -94,8 +53,6 @@ impl Drop for PipewireHandle {
                 error!("Pipewire thread panicked: {err:?}");
             }
         }
-        // TODO: Figure out how to dcleanly cancel and join/await the listener task, if anything
-        // actually needs to be done at all
     }
 }
 
@@ -116,19 +73,12 @@ pub struct Graph {
 
 #[derive(Debug)]
 pub enum ToPipewireMessage {
-    UpdateOne(PipewireSubscriptionKey),
-    UpdateAll,
+    Update,
     Exit,
 }
 
 #[derive(Debug)]
 enum FromPipewireMessage {}
-
-#[derive(Debug)]
-enum SubscriptionMessage {
-    UpdateOne(PipewireSubscriptionKey),
-    Exit,
-}
 
 #[derive(Error, Debug)]
 #[error("failed to send message to Pipewire: {0:?}")]
@@ -142,11 +92,11 @@ fn init_adapter(
     pw_sender: pipewire::channel::Sender<ToPipewireMessage>,
 ) -> (
     thread::JoinHandle<Result<(), PipewireChannelError>>,
-    mpsc::UnboundedSender<ToPipewireMessage>,
+    mpsc::Sender<ToPipewireMessage>,
 ) {
-    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let (sender, receiver) = mpsc::channel();
     let handle = thread::spawn(move || loop {
-        match receiver.blocking_recv().unwrap_or(ToPipewireMessage::Exit) {
+        match receiver.recv().unwrap_or(ToPipewireMessage::Exit) {
             ToPipewireMessage::Exit => {
                 break pw_sender
                     .send(ToPipewireMessage::Exit)
@@ -156,57 +106,4 @@ fn init_adapter(
         }
     });
     (handle, sender)
-}
-
-// fn init_pipewire_listener(
-//     store: Arc<RwLock<Store>>,
-//     subscriptions: Subscriptions,
-//     mut pw_receiver: mpsc::UnboundedReceiver<FromPipewireMessage>,
-// ) -> (
-//     mpsc::UnboundedSender<SubscriptionMessage>,
-//     tauri::async_runtime::JoinHandle<()>,
-// ) {
-//     let (tx, mut control_receiver) = tokio::sync::mpsc::unbounded_channel();
-
-//     let handle = tauri::async_runtime::spawn(async move {
-//         loop {
-//             tokio::select! {
-//                 message = pw_receiver.recv() => {
-//                     if let Some(message) = message {
-//                         match message {
-//                             FromPipewireMessage::Update => {
-//                                 let graph =
-//                                     { Arc::new(store.read().expect("store lock poisoned").dump_graph()) };
-
-//                                 for subscription in subscriptions
-//                                     .lock()
-//                                     .expect("subscriptions lock poisoned")
-//                                     .values()
-//                                 {
-//                                     subscription(graph.clone());
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 }
-//                 message = control_receiver.recv() => {
-//                     if let Some(message) = message {
-//                         match message {
-//                             SubscriptionMessage::UpdateOne(key) => {
-//                                 if let Some(f) = subscriptions.lock().expect("subscriptions lock poisoned").get(key) {
-//                                     f({ Arc::new(store.read().expect("store lock poisoned").dump_graph()) });
-//                                 }
-//                             }
-//                             SubscriptionMessage::Exit => break,
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     });
-//     (tx, handle)
-// }
-
-new_key_type! {
-    pub struct PipewireSubscriptionKey;
 }

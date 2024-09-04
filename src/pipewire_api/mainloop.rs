@@ -2,7 +2,7 @@ use std::{
     cell::{RefCell, RefMut},
     ops::Deref,
     rc::Rc,
-    sync::Arc,
+    sync::{mpsc, Arc},
     thread::JoinHandle,
 };
 
@@ -23,23 +23,10 @@ use pipewire::{
     },
     types::ObjectType,
 };
-use tokio::sync::mpsc;
 
 use crate::pipewire_api::pod::NodeProps;
 
-use super::{store::Store, FromPipewireMessage, Subscriptions, ToPipewireMessage};
-
-fn update_subscriptions(subscriptions: &Subscriptions, store: &Store) {
-    let graph = Arc::new(store.dump_graph());
-
-    for subscription in subscriptions
-        .lock()
-        .expect("subscriptions lock poisoned")
-        .values()
-    {
-        subscription(graph.clone());
-    }
-}
+use super::{store::Store, FromPipewireMessage, Graph, ToPipewireMessage};
 
 /// # Master
 ///
@@ -78,7 +65,7 @@ impl Master {
                     let result = { store.borrow_mut().add_object(&registry, global) };
                     match result {
                         Ok(_) => {
-                            sender.send(ToPipewireMessage::UpdateAll);
+                            sender.send(ToPipewireMessage::Update);
 
                             // Add param listeners for objects
                             match global.type_ {
@@ -107,7 +94,7 @@ impl Master {
                     println!("Global removed: {:?}", global);
                     let mut store_borrow = store.borrow_mut();
                     store_borrow.remove_object(global);
-                    sender.send(ToPipewireMessage::UpdateAll);
+                    sender.send(ToPipewireMessage::Update);
                 }
             })
             .register()
@@ -124,11 +111,10 @@ pub fn node_listener(
             node.proxy
                 .add_listener_local()
                 .param({
-                    let id = id;
                     move |_, type_, _, _, pod| {
                         let mut store_borrow = store.borrow_mut();
                         store_borrow.change_node(type_, id, pod);
-                        sender.send(ToPipewireMessage::UpdateAll);
+                        sender.send(ToPipewireMessage::Update);
                     }
                 })
                 .register(),
@@ -140,14 +126,14 @@ pub fn node_listener(
 }
 
 pub(super) fn init_mainloop(
-    subscriptions: Subscriptions,
+    update_fn: impl Fn(Graph) + Send + 'static,
 ) -> Result<(
     JoinHandle<()>,
     pipewire::channel::Sender<ToPipewireMessage>,
-    tokio::sync::mpsc::UnboundedReceiver<FromPipewireMessage>,
+    mpsc::Receiver<FromPipewireMessage>,
 )> {
     let (to_pw_tx, to_pw_rx) = pipewire::channel::channel();
-    let (from_pw_tx, from_pw_rx) = mpsc::unbounded_channel();
+    let (from_pw_tx, from_pw_rx) = mpsc::channel();
     let (init_status_tx, init_status_rx) = oneshot::channel::<Result<()>>();
 
     let to_pw_tx_clone = to_pw_tx.clone();
@@ -196,27 +182,7 @@ pub(super) fn init_mainloop(
             let mainloop = mainloop.clone();
             let store = store.clone();
             move |message| match message {
-                ToPipewireMessage::UpdateOne(key) => {
-                    if let Some(subscription) = subscriptions
-                        .lock()
-                        .expect("subscriptions lock poisoned")
-                        .get(key)
-                    {
-                        let graph = { Arc::new(store.borrow().dump_graph()) };
-                        subscription(graph);
-                    }
-                }
-                ToPipewireMessage::UpdateAll => {
-                    let graph = { Arc::new(store.borrow().dump_graph()) };
-
-                    for subscription in subscriptions
-                        .lock()
-                        .expect("subscriptions lock poisoned")
-                        .values()
-                    {
-                        subscription(graph.clone());
-                    }
-                }
+                ToPipewireMessage::Update => update_fn(store.borrow().dump_graph()),
                 ToPipewireMessage::Exit => mainloop.quit(),
             }
         });
