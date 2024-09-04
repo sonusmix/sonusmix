@@ -53,6 +53,10 @@ impl NodeProps {
         NodeProps { value }
     }
 
+    pub fn value(self) -> Value {
+        self.value
+    }
+
     pub fn get_volumes(&self) -> Option<&[f32]> {
         if let Value::Object(object) = &self.value {
             if let Some(Value::ValueArray(ValueArray::Float(channel_volumes))) = object
@@ -66,16 +70,27 @@ impl NodeProps {
         return None
     }
 
-    pub fn get_volumes_mut(&mut self) -> &mut Vec<f32> {
-            if let Value::Object(object) = &mut self.value {
-                if let Some(Value::ValueArray(ValueArray::Float(channel_volumes))) = object
-                    .properties
-                    .iter_mut()
-                    .find_map(|prop| (prop.key == SPA_PROP_channelVolumes).then(|| &mut prop.value))
-                {
-                    return channel_volumes;
-                }
-            }
-            panic!("We checked that the field existed and had the right type on serialization");
+    pub fn set_volumes(&mut self, volumes: Vec<f32>) {
+        if let Value::Object(object) = &mut self.value {
+            object
+                .properties
+                .iter_mut()
+                .find_map(|prop|
+                          (prop.key == SPA_PROP_channelVolumes)
+                          .then(|| prop.value = Value::ValueArray(ValueArray::Float(volumes.clone())))); // TODO: remove this clone
         }
+    }
+
+    pub fn get_volumes_mut(&mut self) -> Option<&mut Vec<f32>> {
+        if let Value::Object(object) = &mut self.value {
+            if let Some(Value::ValueArray(ValueArray::Float(channel_volumes))) = object
+                .properties
+                .iter_mut()
+                .find_map(|prop| (prop.key == SPA_PROP_channelVolumes).then(|| &mut prop.value))
+            {
+                return Some(channel_volumes);
+            }
+        }
+        return None
+    }
 }

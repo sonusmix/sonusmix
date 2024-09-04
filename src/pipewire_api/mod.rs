@@ -2,6 +2,7 @@ mod mainloop;
 mod object;
 mod pod;
 mod store;
+mod actions;
 
 use std::{collections::HashMap, sync::mpsc, thread};
 
