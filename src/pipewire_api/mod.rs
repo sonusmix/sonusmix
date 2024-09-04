@@ -75,6 +75,8 @@ pub struct Graph {
 #[derive(Debug)]
 pub enum ToPipewireMessage {
     Update,
+    // TODO: set channel volumes individually
+    ChangeVolume(u32, f32),
     Exit,
 }
 

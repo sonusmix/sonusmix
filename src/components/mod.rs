@@ -1,4 +1,5 @@
 pub mod app;
-pub mod about;
-pub mod node;
-pub mod choose_node_dialog;
+mod about;
+mod node;
+mod choose_node_dialog;
+// mod connect_nodes;

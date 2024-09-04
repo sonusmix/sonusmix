@@ -1,5 +1,9 @@
-use std::{collections::{HashMap, VecDeque}, fmt::Debug};
+use anyhow::{anyhow, Result};
 use log::{debug, error};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Debug,
+};
 
 use pipewire::{
     registry::{GlobalObject, Registry},
@@ -12,8 +16,8 @@ use pipewire::{
 };
 
 use super::{
-    object::{Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind},
     actions::NodeAction,
+    object::{Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind},
     pod::NodeProps,
     Graph,
 };
@@ -26,7 +30,7 @@ pub(super) struct Store {
     pub(super) nodes: HashMap<u32, Node>,
     pub(super) ports: HashMap<u32, Port>,
     pub(super) links: HashMap<u32, Link>,
-    pending_node_actions: HashMap<u32, VecDeque<NodeAction>>
+    pending_node_actions: HashMap<u32, VecDeque<NodeAction>>,
 }
 
 impl Store {
@@ -38,7 +42,7 @@ impl Store {
             nodes: HashMap::new(),
             ports: HashMap::new(),
             links: HashMap::new(),
-            pending_node_actions: HashMap::new()
+            pending_node_actions: HashMap::new(),
         }
     }
 
@@ -255,7 +259,8 @@ impl Store {
         if let Some(pending_actions) = self.pending_node_actions.get_mut(&id) {
             for action in pending_actions.iter() {
                 debug!("Applying action {action:?} to node {id}");
-                if let Some(new_pod) = action.apply(value) {
+                if let Some(new_pod) = action.apply(value.clone()) {
+                    debug!("old pod: {:?}\nnew pod: {:?}", value, new_pod.1);
                     let bytes = new_pod.0;
                     let pod = Pod::from_bytes(bytes.as_slice()).expect("Failed to construct Pod");
                     // store the newly created value
@@ -265,10 +270,10 @@ impl Store {
                 } else {
                     // use the old pod to construct a new value, as value is moved inside action.
                     // This way not all actions are aborted on a single error.
-                    (_, value) =
-                        PodDeserializer::deserialize_any_from(pod.as_bytes()).expect("Deserialization failed");
+                    (_, value) = PodDeserializer::deserialize_any_from(pod.as_bytes())
+                        .expect("Deserialization failed");
                     error!("The provided Pod from node {id} does not have the needed props to apply an action.");
-                    continue
+                    continue;
                 }
             }
             pending_actions.clear();
@@ -276,16 +281,22 @@ impl Store {
     }
 
     /// Send an action to a node. The action is applied as soon as the next event is received from the node listener.
-    pub(super) fn node_action(&mut self, id: u32, action: NodeAction) -> Option<()> {
-        // return none if there is no node
-        let node = self.nodes.get(&id)?;
+    pub(super) fn node_action(&mut self, id: u32, action: NodeAction) -> Result<()> {
+        let node = self
+            .nodes
+            .get(&id)
+            .ok_or_else(|| anyhow!("Node {id} not found"))?;
 
         // add action to pending request
-        self.pending_node_actions.entry(id).and_modify(|v| v.push_back(action)).or_insert_with(|| VecDeque::from([action]));
+        self.pending_node_actions
+            .entry(id)
+            .and_modify(|v| v.push_back(action))
+            .or_insert_with(|| VecDeque::from([action]));
 
-        node.proxy.enum_params(007, Some(ParamType::Props), 0, u32::MAX);
+        node.proxy
+            .enum_params(007, Some(ParamType::Props), 0, u32::MAX);
 
-        Some(())
+        Ok(())
     }
 
     #[rustfmt::skip] // Rustfmt puts each call on its own line which is really hard to read

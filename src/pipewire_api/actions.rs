@@ -24,12 +24,12 @@ impl NodeAction {
         let mut node_props = NodeProps::new(value);
         match *self {
             NodeAction::ChangeVolume(volume) => {
-                let volume_channels = node_props.get_volumes()?.len();
+                let num_volume_channels = node_props.get_volumes()?.len();
 
                 // create a new vec of channels based on the length of the count of the existing channels
-                let mut new_channels = Vec::with_capacity(volume_channels);
-                
-                for _ in 1..volume_channels {
+                let mut new_channels = Vec::with_capacity(num_volume_channels);
+
+                for _ in 0..num_volume_channels {
                     new_channels.push(volume)
                 }
 

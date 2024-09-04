@@ -15,7 +15,7 @@ use super::choose_node_dialog::{ChooseNodeDialog, ChooseNodeDialogMsg, ChooseNod
 use super::node::Node;
 
 pub struct App {
-    pipewire_sender: mpsc::Sender<ToPipewireMessage>,
+    pw_sender: mpsc::Sender<ToPipewireMessage>,
     graph: Arc<Graph>,
     about_component: Option<Controller<AboutComponent>>,
     sources: FactoryVecDeque<Node>,
@@ -110,7 +110,7 @@ impl SimpleComponent for App {
     }
 
     fn init(
-        pipewire_sender: mpsc::Sender<ToPipewireMessage>,
+        pw_sender: mpsc::Sender<ToPipewireMessage>,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -131,7 +131,7 @@ impl SimpleComponent for App {
             });
 
         let model = App {
-            pipewire_sender,
+            pw_sender,
             about_component: None,
             graph,
             sources,
@@ -170,10 +170,10 @@ impl SimpleComponent for App {
             }
             Msg::NodeChosen(list, id) => match list {
                 PortKind::Source => {
-                    self.sources.guard().push_back(id);
+                    self.sources.guard().push_back((id, self.pw_sender.clone()));
                 }
                 PortKind::Sink => {
-                    self.sinks.guard().push_back(id);
+                    self.sinks.guard().push_back((id, self.pw_sender.clone()));
                 }
             },
         };

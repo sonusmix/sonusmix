@@ -24,7 +24,7 @@ use pipewire::{
     types::ObjectType,
 };
 
-use crate::pipewire_api::pod::NodeProps;
+use crate::pipewire_api::{actions::NodeAction, pod::NodeProps};
 
 use super::{store::Store, FromPipewireMessage, Graph, ToPipewireMessage};
 
@@ -183,6 +183,9 @@ pub(super) fn init_mainloop(
             let store = store.clone();
             move |message| match message {
                 ToPipewireMessage::Update => update_fn(store.borrow().dump_graph()),
+                ToPipewireMessage::ChangeVolume(id, volume) => {
+                    store.borrow_mut().node_action(id, NodeAction::ChangeVolume(volume));
+                }
                 ToPipewireMessage::Exit => mainloop.quit(),
             }
         });
