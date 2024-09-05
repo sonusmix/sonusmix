@@ -9,11 +9,13 @@ use crate::{
     pipewire_api::{Graph, Node as PwNode, ToPipewireMessage},
 };
 
+fn calculate_slider_value(channel_volumes: &Vec<f32>) -> f64 {
+    ((channel_volumes.iter().sum::<f32>() / channel_volumes.len().max(1) as f32) as f64).powf(1.0 / 3.0)
+}
+
 pub struct Node {
     pub node: PwNode,
     enabled: bool,
-    dedupe_volume_update: bool,
-    sent: bool,
     pw_sender: mpsc::Sender<ToPipewireMessage>,
 }
 
@@ -71,8 +73,7 @@ impl FactoryComponent for Node {
                 gtk::Scale {
                     set_range: (0.0, 1.0),
                     #[watch]
-                    set_value: ((self.node.channel_volumes.iter().sum::<f32>()
-                        / self.node.channel_volumes.len().max(1) as f32) as f64).powf(1.0 / 3.0),
+                    set_value: calculate_slider_value(&self.node.channel_volumes),
 
                     connect_value_changed[sender] => move |scale| {
                         sender.input(NodeMsg::Volume(scale.value()));
@@ -108,8 +109,6 @@ impl FactoryComponent for Node {
                 .expect("node component failed to find matching key on init")
                 .clone(),
             enabled: true,
-            dedupe_volume_update: false,
-            sent: false,
             pw_sender,
         }
     }
@@ -118,11 +117,8 @@ impl FactoryComponent for Node {
         match msg {
             NodeMsg::Refresh(graph) => {
                 if let Some(node) = graph.nodes.get(&self.node.id) {
-                    let old_node = std::mem::replace(&mut self.node, node.clone());
+                    self.node = node.clone();
                     debug!("node refresh, volume: {:?}", self.node.channel_volumes);
-                    if self.node.channel_volumes != old_node.channel_volumes {
-                        self.dedupe_volume_update = true;
-                    }
                     self.enabled = true;
                 } else {
                     self.enabled = false;
@@ -130,16 +126,15 @@ impl FactoryComponent for Node {
                 }
             }
             NodeMsg::Volume(volume) => {
-                if !self.dedupe_volume_update {
-                    debug!("slider moved to {}", volume);
-                    self.pw_sender.send(ToPipewireMessage::ChangeVolume(
-                        self.node.id,
-                        volume.powf(3.0) as f32,
-                    ));
-                    // self.sent = true;
-                } else {
-                    self.dedupe_volume_update = false;
+                debug!("slider moved to {}", volume);
+                if calculate_slider_value(&self.node.channel_volumes) == volume {
+                    return
                 }
+                self.pw_sender.send(ToPipewireMessage::ChangeVolume(
+                    self.node.id,
+                    volume.powf(3.0) as f32,
+                ));
+                // self.sent = true;
             }
             NodeMsg::SetToFifty => {
                 self.pw_sender.send(ToPipewireMessage::ChangeVolume(
