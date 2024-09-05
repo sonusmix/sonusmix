@@ -1,9 +1,9 @@
-use std::io::{BufWriter, Cursor};
+use std::io::Cursor;
 
-use pipewire::spa::pod::{deserialize::PodDeserializer, serialize::PodSerializer, Pod, Value};
+use anyhow::Result;
+use pipewire::spa::{param::ParamType, pod::{object, serialize::PodSerializer, Property, Value, ValueArray}, sys::SPA_PROP_channelVolumes, utils::SpaTypes};
 
-use super::pod::NodeProps;
-
+use super::{pod::NodeProps, object::Node};
 
 #[derive(Debug, Copy, Clone)]
 pub(super) enum NodeAction {
@@ -11,20 +11,23 @@ pub(super) enum NodeAction {
 }
 
 impl NodeAction {
-    /// Apply the provided [NodeAction] on the Value.
-    /// Returns None if the provided Value does not have the
-    /// corresponding prop to change (eg. no volume prop for changing volume).
+    /// Create a new Pod based on the provided [NodeAction].
     ///
     /// A pod can be constructed with the provided bytes.
     ///
     /// Why is not just a Pod returned? Because a Pod cannot be owned as it's
     /// always referencing the bytes.
     // TODO: Try to return a Pod directly
-    pub(super) fn apply(&self, value: Value) -> Option<(Vec<u8>, Value)> {
-        let mut node_props = NodeProps::new(value);
-        match *self {
+    pub(super) fn apply(&self, node: &Node) -> Result<Vec<u8>> {
+        let node_props = match *self {
             NodeAction::ChangeVolume(volume) => {
-                let num_volume_channels = node_props.get_volumes()?.len();
+                let num_volume_channels = node.channel_volumes.len();
+
+                // assume that if a node has no volume channels, it does not
+                // support changing the volume.
+                if num_volume_channels == 0 {
+                    return Err(anyhow::Error::msg("The Node has no volume channels"))
+                }
 
                 // create a new vec of channels based on the length of the count of the existing channels
                 let mut new_channels = Vec::with_capacity(num_volume_channels);
@@ -33,7 +36,12 @@ impl NodeAction {
                     new_channels.push(volume)
                 }
 
-                node_props.set_volumes(new_channels);
+                // create a new prop object
+                NodeProps::new(Value::Object(object! {
+                    SpaTypes::ObjectParamProps,
+                    ParamType::Props,
+                    Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(new_channels))),
+                }))
             }
         };
 
@@ -43,6 +51,6 @@ impl NodeAction {
         let (pod_bytes, _) = PodSerializer::serialize(pod_bytes, &value).expect("Unable to serialize NodeProps");
         let pod_bytes = pod_bytes.into_inner();
 
-        Some((pod_bytes, value))
+        Ok(pod_bytes)
     }
 }

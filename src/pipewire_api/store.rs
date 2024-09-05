@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
-use log::{debug, error};
+use log::debug;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fmt::Debug,
 };
 
@@ -30,7 +30,6 @@ pub(super) struct Store {
     pub(super) nodes: HashMap<u32, Node>,
     pub(super) ports: HashMap<u32, Port>,
     pub(super) links: HashMap<u32, Link>,
-    pending_node_actions: HashMap<u32, VecDeque<NodeAction>>,
 }
 
 impl Store {
@@ -42,7 +41,6 @@ impl Store {
             nodes: HashMap::new(),
             ports: HashMap::new(),
             links: HashMap::new(),
-            pending_node_actions: HashMap::new(),
         }
     }
 
@@ -248,53 +246,32 @@ impl Store {
         // deserialize the pod
         let (_, value) =
             PodDeserializer::deserialize_any_from(pod.as_bytes()).expect("Deserialization failed");
+
         let node_props = NodeProps::new(value);
+
         // save volume if node has volume
         if let Some(volume) = node_props.get_volumes() {
             node.channel_volumes = volume.to_vec();
         }
-        let mut value = node_props.value();
-
-        // process the pending actions of the pod.
-        if let Some(pending_actions) = self.pending_node_actions.get_mut(&id) {
-            for action in pending_actions.iter() {
-                debug!("Applying action {action:?} to node {id}");
-                if let Some(new_pod) = action.apply(value.clone()) {
-                    debug!("old pod: {:?}\nnew pod: {:?}", value, new_pod.1);
-                    let bytes = new_pod.0;
-                    let pod = Pod::from_bytes(bytes.as_slice()).expect("Failed to construct Pod");
-                    // store the newly created value
-                    value = new_pod.1;
-                    // send the applied action to pipewire
-                    node.proxy.set_param(ParamType::Props, 0, &pod);
-                } else {
-                    // use the old pod to construct a new value, as value is moved inside action.
-                    // This way not all actions are aborted on a single error.
-                    (_, value) = PodDeserializer::deserialize_any_from(pod.as_bytes())
-                        .expect("Deserialization failed");
-                    error!("The provided Pod from node {id} does not have the needed props to apply an action.");
-                    continue;
-                }
-            }
-            pending_actions.clear();
-        }
     }
 
-    /// Send an action to a node. The action is applied as soon as the next event is received from the node listener.
+    /// Send an action to a pipewire node.
     pub(super) fn node_action(&mut self, id: u32, action: NodeAction) -> Result<()> {
         let node = self
             .nodes
             .get(&id)
             .ok_or_else(|| anyhow!("Node {id} not found"))?;
 
-        // add action to pending request
-        self.pending_node_actions
-            .entry(id)
-            .and_modify(|v| v.push_back(action))
-            .or_insert_with(|| VecDeque::from([action]));
+        debug!("got action node {id} to {:?}", action);
+
+        let action_param_bytes = action.apply(node)?;
+        let action_param_pod = Pod::from_bytes(action_param_bytes.as_slice()).expect("apply returned invalid pod");
+
+        // send parameter to pipewire
+        node.proxy.set_param(ParamType::Props, 0, action_param_pod);
 
         node.proxy
-            .enum_params(007, Some(ParamType::Props), 0, u32::MAX);
+            .enum_params(7, Some(ParamType::Props), 0, 1);
 
         Ok(())
     }

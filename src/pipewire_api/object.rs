@@ -2,7 +2,7 @@ use std::{
     fmt::Debug,
     rc::Rc,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex}
 };
 
 use derivative::Derivative;
