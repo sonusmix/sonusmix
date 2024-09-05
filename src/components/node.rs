@@ -10,7 +10,8 @@ use crate::{
 };
 
 fn calculate_slider_value(channel_volumes: &Vec<f32>) -> f64 {
-    ((channel_volumes.iter().sum::<f32>() / channel_volumes.len().max(1) as f32) as f64).powf(1.0 / 3.0)
+    ((channel_volumes.iter().sum::<f32>() / channel_volumes.len().max(1) as f32) as f64)
+        .powf(1.0 / 3.0)
 }
 
 pub struct Node {
@@ -24,7 +25,6 @@ pub enum NodeMsg {
     Refresh(Arc<Graph>),
     #[doc(hidden)]
     Volume(f64),
-    SetToFifty,
 }
 
 #[derive(Debug, Clone)]
@@ -78,14 +78,6 @@ impl FactoryComponent for Node {
                     connect_value_changed[sender] => move |scale| {
                         sender.input(NodeMsg::Volume(scale.value()));
                     }
-                },
-
-                gtk::Button {
-                    set_label: "set to 0.5",
-
-                    connect_clicked[sender] => move |_| {
-                        sender.input(NodeMsg::SetToFifty);
-                    }
                 }
             },
 
@@ -118,7 +110,6 @@ impl FactoryComponent for Node {
             NodeMsg::Refresh(graph) => {
                 if let Some(node) = graph.nodes.get(&self.node.id) {
                     self.node = node.clone();
-                    debug!("node refresh, volume: {:?}", self.node.channel_volumes);
                     self.enabled = true;
                 } else {
                     self.enabled = false;
@@ -126,21 +117,14 @@ impl FactoryComponent for Node {
                 }
             }
             NodeMsg::Volume(volume) => {
-                debug!("slider moved to {}", volume);
                 if calculate_slider_value(&self.node.channel_volumes) == volume {
-                    return
+                    return;
                 }
                 self.pw_sender.send(ToPipewireMessage::ChangeVolume(
                     self.node.id,
                     volume.powf(3.0) as f32,
                 ));
                 // self.sent = true;
-            }
-            NodeMsg::SetToFifty => {
-                self.pw_sender.send(ToPipewireMessage::ChangeVolume(
-                    self.node.id,
-                    (0.5f32).powf(3.0),
-                ));
             }
         }
     }
