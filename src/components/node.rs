@@ -74,11 +74,12 @@ impl FactoryComponent for Node {
                 gtk::Scale {
                     set_range: (0.0, 1.0),
                     #[watch]
+                    #[block_signal(volume_handler)]
                     set_value: calculate_slider_value(&self.node.channel_volumes),
 
                     connect_value_changed[sender] => move |scale| {
                         sender.input(NodeMsg::Volume(scale.value()));
-                    }
+                        } @volume_handler
                 }
             },
 
@@ -118,14 +119,10 @@ impl FactoryComponent for Node {
                 }
             }
             NodeMsg::Volume(volume) => {
-                if calculate_slider_value(&self.node.channel_volumes) == volume {
-                    return;
-                }
                 self.pw_sender.send(ToPipewireMessage::ChangeVolume(
                     self.node.id,
                     volume.powf(3.0) as f32,
                 ));
-                // self.sent = true;
             }
         }
     }
