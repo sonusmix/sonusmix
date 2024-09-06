@@ -7,7 +7,10 @@ use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
-use crate::pipewire_api::{Graph, Node, PortKind};
+use crate::{
+    graph_events::subscribe_to_pipewire,
+    pipewire_api::{Graph, Node, PortKind},
+};
 
 pub struct ChooseNodeDialog {
     graph: Arc<Graph>,
@@ -16,8 +19,15 @@ pub struct ChooseNodeDialog {
     visible: bool,
 }
 
+impl ChooseNodeDialog {
+    pub fn active_list(&self) -> Option<PortKind> {
+        self.visible.then_some(self.list)
+    }
+}
+
 #[derive(Debug)]
 pub enum ChooseNodeDialogMsg {
+    UpdateGraph(Arc<Graph>),
     Show(PortKind, Vec<u32>),
     #[doc(hidden)]
     Close,
@@ -33,7 +43,7 @@ pub enum ChooseNodeDialogOutput {
 
 #[relm4::component(pub)]
 impl SimpleComponent for ChooseNodeDialog {
-    type Init = Arc<Graph>;
+    type Init = ();
     type Input = ChooseNodeDialogMsg;
     type Output = ChooseNodeDialogOutput;
 
@@ -60,11 +70,9 @@ impl SimpleComponent for ChooseNodeDialog {
         }
     }
 
-    fn init(
-        graph: Arc<Graph>,
-        root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
+    fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+        let graph = subscribe_to_pipewire(sender.input_sender(), ChooseNodeDialogMsg::UpdateGraph);
+
         let nodes = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
             .forward(sender.input_sender(), |NodeChosen(id, index)| {
@@ -86,6 +94,9 @@ impl SimpleComponent for ChooseNodeDialog {
 
     fn update(&mut self, msg: ChooseNodeDialogMsg, sender: ComponentSender<Self>) {
         match msg {
+            ChooseNodeDialogMsg::UpdateGraph(graph) => {
+                self.graph = graph;
+            }
             ChooseNodeDialogMsg::Show(list, node_ids) => {
                 self.list = list;
                 {

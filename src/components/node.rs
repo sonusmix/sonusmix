@@ -15,14 +15,20 @@ fn calculate_slider_value(channel_volumes: &Vec<f32>) -> f64 {
 }
 
 pub struct Node {
-    pub node: PwNode,
+    node: PwNode,
     enabled: bool,
     pw_sender: mpsc::Sender<ToPipewireMessage>,
 }
 
+impl Node {
+    pub fn id(&self) -> u32 {
+        self.node.id
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum NodeMsg {
-    Refresh(Arc<Graph>),
+    UpdateGraph(Arc<Graph>),
     #[doc(hidden)]
     Volume(f64),
 }
@@ -95,7 +101,7 @@ impl FactoryComponent for Node {
         sender: FactorySender<Self>,
     ) -> Self {
         Self {
-            node: subscribe_to_pipewire(sender.input_sender(), NodeMsg::Refresh)
+            node: subscribe_to_pipewire(sender.input_sender(), NodeMsg::UpdateGraph)
                 .nodes
                 .get(&id)
                 .expect("node component failed to find matching key on init")
@@ -107,7 +113,7 @@ impl FactoryComponent for Node {
 
     fn update(&mut self, msg: NodeMsg, _sender: FactorySender<Self>) {
         match msg {
-            NodeMsg::Refresh(graph) => {
+            NodeMsg::UpdateGraph(graph) => {
                 if let Some(node) = graph.nodes.get(&self.node.id) {
                     self.node = node.clone();
                     self.enabled = true;

@@ -114,7 +114,7 @@ impl SimpleComponent for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let graph = subscribe_to_pipewire(sender.input_sender(), |graph| Msg::UpdateGraph(graph));
+        let graph = subscribe_to_pipewire(sender.input_sender(), Msg::UpdateGraph);
 
         let sources = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -124,7 +124,7 @@ impl SimpleComponent for App {
             .forward(sender.input_sender(), |output| match output {});
         let choose_node_dialog = ChooseNodeDialog::builder()
             .transient_for(&root)
-            .launch(graph.clone())
+            .launch(())
             .forward(sender.input_sender(), |msg| match msg {
                 ChooseNodeDialogOutput::Closed => Msg::Ignore,
                 ChooseNodeDialogOutput::NodeChosen(list, id) => Msg::NodeChosen(list, id),
@@ -146,11 +146,15 @@ impl SimpleComponent for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, _sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             Msg::Ignore => {}
             Msg::UpdateGraph(graph) => {
                 self.graph = graph;
+                // Update the choose node dialog if it's open
+                if let Some(list) = self.choose_node_dialog.model().active_list() {
+                    sender.input(Msg::ChooseNode(list));
+                }
             }
             Msg::OpenAbout => {
                 self.about_component = Some(AboutComponent::builder().launch(()).detach());
@@ -185,7 +189,7 @@ fn get_inactive_nodes<'a>(
     active: impl IntoIterator<Item = &'a Node>,
     list: PortKind,
 ) -> Vec<u32> {
-    let active: Vec<u32> = active.into_iter().map(|node| node.node.id).collect();
+    let active: Vec<u32> = active.into_iter().map(|node| node.id()).collect();
     graph
         .nodes
         .values()
