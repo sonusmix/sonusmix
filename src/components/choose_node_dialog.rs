@@ -15,13 +15,28 @@ use crate::{
 pub struct ChooseNodeDialog {
     graph: Arc<Graph>,
     list: PortKind,
-    nodes: FactoryVecDeque<ChooseNodeItem>,
+    active_nodes: FactoryVecDeque<ChooseNodeItem>,
+    entry_buffer: gtk::EntryBuffer,
     visible: bool,
+    list_visible: bool,
 }
 
 impl ChooseNodeDialog {
     pub fn active_list(&self) -> Option<PortKind> {
         self.visible.then_some(self.list)
+    }
+
+    fn build_factory(&mut self) {
+        let mut factory = self.active_nodes.guard();
+        factory.clear();
+        for node in self
+            .node_ids
+            .iter()
+            .filter_map(|id| self.graph.nodes.get(&id))
+            .cloned()
+        {
+            factory.push_back(node);
+        }
     }
 }
 
@@ -33,6 +48,8 @@ pub enum ChooseNodeDialogMsg {
     Close,
     #[doc(hidden)]
     NodeChosen(u32, DynamicIndex),
+    #[doc(hidden)]
+    SearchUpdated,
 }
 
 #[derive(Debug)]
@@ -63,9 +80,32 @@ impl SimpleComponent for ChooseNodeDialog {
                 Propagation::Stop
             },
 
+            gtk::Entry {
+                set_visible: true,
+                set_buffer: &model.entry_buffer,
+
+                connect_changed[sender] => move |_| {
+                    sender.input(ChooseNodeDialogMsg::SearchUpdated)
+                }
+            },
+
             #[local_ref]
             nodes_box -> gtk::Box {
+                #[watch]
+                set_visible: model.list_visible,
                 set_orientation: gtk::Orientation::Vertical,
+            },
+
+            gtk::Box {
+                set_vexpand: true,
+                set_valign: gtk::Align::Center,
+                set_halign: gtk::Align::Center,
+
+                gtk::Label {
+                    #[watch]
+                    set_visible: model.active_nodes.is_empty(),
+                    set_text: "No object found"
+                }
             },
         }
     }
@@ -73,7 +113,7 @@ impl SimpleComponent for ChooseNodeDialog {
     fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let graph = subscribe_to_pipewire(sender.input_sender(), ChooseNodeDialogMsg::UpdateGraph);
 
-        let nodes = FactoryVecDeque::builder()
+        let active_nodes = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
             .forward(sender.input_sender(), |NodeChosen(id, index)| {
                 ChooseNodeDialogMsg::NodeChosen(id, index)
@@ -82,11 +122,13 @@ impl SimpleComponent for ChooseNodeDialog {
         let model = ChooseNodeDialog {
             graph,
             list: PortKind::Source,
-            nodes,
+            active_nodes,
+            entry_buffer: gtk::EntryBuffer::new(Some("")),
             visible: false,
+            list_visible: true,
         };
 
-        let nodes_box = model.nodes.widget();
+        let nodes_box = model.active_nodes.widget();
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
@@ -99,25 +141,38 @@ impl SimpleComponent for ChooseNodeDialog {
             }
             ChooseNodeDialogMsg::Show(list, node_ids) => {
                 self.list = list;
-                {
-                    let mut factory = self.nodes.guard();
-                    factory.clear();
-                    for node in node_ids
-                        .into_iter()
-                        .filter_map(|id| self.graph.nodes.get(&id))
-                        .cloned()
-                    {
-                        factory.push_back(node);
-                    }
-                }
+                self.build_factory();
                 self.visible = true;
             }
             ChooseNodeDialogMsg::Close => {
                 self.visible = false;
             }
             ChooseNodeDialogMsg::NodeChosen(id, index) => {
-                self.nodes.guard().remove(index.current_index());
+                self.active_nodes.guard().remove(index.current_index());
                 let _ = sender.output(ChooseNodeDialogOutput::NodeChosen(self.list, id));
+            }
+            ChooseNodeDialogMsg::SearchUpdated => {
+                let text = self.entry_buffer.text();
+
+                if text.is_empty() {
+                    self.build_factory();
+                    return;
+                }
+
+                // hide current list
+                self.list_visible = false;
+
+                // search only by node id if only number
+                if let Ok(num) = &text.parse::<u32>() {
+                    let mut factory = self.active_nodes.guard();
+                    factory.clear();
+                    if let Some(node) = self.graph.nodes.get(num) {
+                        factory.push_back(node.clone());
+                    }
+                }
+
+                self.list_visible = true;
+                // TODO: fuzzy search
             }
         }
     }
