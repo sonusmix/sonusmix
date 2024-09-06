@@ -48,6 +48,17 @@ impl SimpleComponent for ChooseNodeDialog {
             #[watch]
             set_visible: model.visible,
 
+            add_controller = gtk::EventControllerKey {
+                connect_key_pressed[sender] => move |_, key, _, _| {
+                    if key == gtk::gdk::Key::Escape {
+                        sender.input(ChooseNodeDialogMsg::Close);
+                        Propagation::Stop
+                    } else {
+                        Propagation::Proceed
+                    }
+                }
+            },
+
             connect_close_request[sender] => move |_| {
                 sender.input(ChooseNodeDialogMsg::Close);
                 Propagation::Stop
