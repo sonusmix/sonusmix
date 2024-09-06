@@ -8,42 +8,25 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::{
-    graph_events::subscribe_to_pipewire,
+    state::{subscribe_to_pipewire, SonusmixMsg, SonusmixState, SONUSMIX_STATE},
     pipewire_api::{Graph, Node, PortKind},
 };
 
 pub struct ChooseNodeDialog {
     graph: Arc<Graph>,
+    sonusmix_state: Arc<SonusmixState>,
     list: PortKind,
-    active_nodes: FactoryVecDeque<ChooseNodeItem>,
+    nodes: FactoryVecDeque<ChooseNodeItem>,
     entry_buffer: gtk::EntryBuffer,
     visible: bool,
     list_visible: bool,
 }
 
-impl ChooseNodeDialog {
-    pub fn active_list(&self) -> Option<PortKind> {
-        self.visible.then_some(self.list)
-    }
-
-    fn build_factory(&mut self) {
-        let mut factory = self.active_nodes.guard();
-        factory.clear();
-        for node in self
-            .node_ids
-            .iter()
-            .filter_map(|id| self.graph.nodes.get(&id))
-            .cloned()
-        {
-            factory.push_back(node);
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum ChooseNodeDialogMsg {
     UpdateGraph(Arc<Graph>),
-    Show(PortKind, Vec<u32>),
+    SonusmixState(Arc<SonusmixState>),
+    Show(PortKind),
     #[doc(hidden)]
     Close,
     #[doc(hidden)]
@@ -52,17 +35,11 @@ pub enum ChooseNodeDialogMsg {
     SearchUpdated,
 }
 
-#[derive(Debug)]
-pub enum ChooseNodeDialogOutput {
-    Closed,
-    NodeChosen(PortKind, u32),
-}
-
 #[relm4::component(pub)]
 impl SimpleComponent for ChooseNodeDialog {
     type Init = ();
     type Input = ChooseNodeDialogMsg;
-    type Output = ChooseNodeDialogOutput;
+    type Output = Infallible;
 
     view! {
         gtk::Window {
@@ -75,35 +52,47 @@ impl SimpleComponent for ChooseNodeDialog {
             #[watch]
             set_visible: model.visible,
 
+            add_controller = gtk::EventControllerKey {
+                connect_key_pressed[sender] => move |_, key, _, _| {
+                    if key == gtk::gdk::Key::Escape {
+                        sender.input(ChooseNodeDialogMsg::Close);
+                        Propagation::Stop
+                    } else {
+                        Propagation::Proceed
+                    }
+                }
+            },
+
             connect_close_request[sender] => move |_| {
                 sender.input(ChooseNodeDialogMsg::Close);
                 Propagation::Stop
             },
 
-            gtk::Entry {
-                set_visible: true,
-                set_buffer: &model.entry_buffer,
-
-                connect_changed[sender] => move |_| {
-                    sender.input(ChooseNodeDialogMsg::SearchUpdated)
-                }
-            },
-
-            #[local_ref]
-            nodes_box -> gtk::Box {
-                #[watch]
-                set_visible: model.list_visible,
-                set_orientation: gtk::Orientation::Vertical,
-            },
-
             gtk::Box {
-                set_vexpand: true,
-                set_valign: gtk::Align::Center,
-                set_halign: gtk::Align::Center,
+                set_orientation: gtk::Orientation::Vertical,
+
+                gtk::Entry {
+                    set_visible: true,
+                    set_buffer: &model.entry_buffer,
+
+                    connect_changed[sender] => move |_| {
+                        sender.input(ChooseNodeDialogMsg::SearchUpdated)
+                    }
+                },
+
+                #[local_ref]
+                nodes_box -> gtk::Box {
+                    #[watch]
+                    set_visible: model.list_visible,
+                    set_orientation: gtk::Orientation::Vertical,
+                },
 
                 gtk::Label {
+                    set_vexpand: true,
+                    set_valign: gtk::Align::Center,
+                    set_halign: gtk::Align::Center,
                     #[watch]
-                    set_visible: model.active_nodes.is_empty(),
+                    set_visible: model.nodes.is_empty(),
                     set_text: "No object found"
                 }
             },
@@ -112,8 +101,9 @@ impl SimpleComponent for ChooseNodeDialog {
 
     fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let graph = subscribe_to_pipewire(sender.input_sender(), ChooseNodeDialogMsg::UpdateGraph);
+        let sonusmix_state = SONUSMIX_STATE.subscribe(sender.input_sender(), ChooseNodeDialogMsg::SonusmixState);
 
-        let active_nodes = FactoryVecDeque::builder()
+        let nodes = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
             .forward(sender.input_sender(), |NodeChosen(id, index)| {
                 ChooseNodeDialogMsg::NodeChosen(id, index)
@@ -121,50 +111,62 @@ impl SimpleComponent for ChooseNodeDialog {
 
         let model = ChooseNodeDialog {
             graph,
+            sonusmix_state,
             list: PortKind::Source,
-            active_nodes,
+            nodes,
             entry_buffer: gtk::EntryBuffer::new(Some("")),
             visible: false,
             list_visible: true,
         };
 
-        let nodes_box = model.active_nodes.widget();
+        let nodes_box = model.nodes.widget();
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: ChooseNodeDialogMsg, sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: ChooseNodeDialogMsg, _sender: ComponentSender<Self>) {
         match msg {
             ChooseNodeDialogMsg::UpdateGraph(graph) => {
                 self.graph = graph;
             }
-            ChooseNodeDialogMsg::Show(list, node_ids) => {
+            ChooseNodeDialogMsg::SonusmixState(state) => {
+                self.sonusmix_state = state;
+                self.update_inactive_nodes();
+            }
+            ChooseNodeDialogMsg::Show(list) => {
                 self.list = list;
-                self.build_factory();
+                self.update_inactive_nodes();
                 self.visible = true;
             }
             ChooseNodeDialogMsg::Close => {
                 self.visible = false;
             }
             ChooseNodeDialogMsg::NodeChosen(id, index) => {
-                self.active_nodes.guard().remove(index.current_index());
-                let _ = sender.output(ChooseNodeDialogOutput::NodeChosen(self.list, id));
+                SONUSMIX_STATE.emit(SonusmixMsg::AddNode(id, self.list));
             }
             ChooseNodeDialogMsg::SearchUpdated => {
                 let text = self.entry_buffer.text();
 
                 if text.is_empty() {
-                    self.build_factory();
+                    self.update_inactive_nodes();
                     return;
                 }
 
                 // hide current list
                 self.list_visible = false;
 
+                let active = match self.list {
+                    PortKind::Source => self.sonusmix_state.active_sources.as_slice(),
+                    PortKind::Sink => self.sonusmix_state.active_sinks.as_slice(),
+                };
+
                 // search only by node id if only number
                 if let Ok(num) = &text.parse::<u32>() {
-                    let mut factory = self.active_nodes.guard();
+                    if active.contains(num) {
+                        return
+                    }
+                    let mut factory = self.nodes.guard();
                     factory.clear();
                     if let Some(node) = self.graph.nodes.get(num) {
                         factory.push_back(node.clone());
@@ -174,6 +176,39 @@ impl SimpleComponent for ChooseNodeDialog {
                 self.list_visible = true;
                 // TODO: fuzzy search
             }
+        }
+    }
+}
+
+impl ChooseNodeDialog {
+    pub fn active_list(&self) -> Option<PortKind> {
+        self.visible.then_some(self.list)
+    }
+
+    fn update_inactive_nodes(&mut self) {
+        let active = match self.list {
+            PortKind::Source => self.sonusmix_state.active_sources.as_slice(),
+            PortKind::Sink => self.sonusmix_state.active_sinks.as_slice(),
+        };
+        let mut factory = self.nodes.guard();
+        factory.clear();
+        for node in self
+            .graph
+            .nodes
+            .values()
+            .filter(|node| {
+                !active.contains(&node.id)
+                    && node.ports.iter().any(|id| {
+                        self.graph
+                            .ports
+                            .get(&id)
+                            .map(|port| port.kind == self.list)
+                            .unwrap_or(false)
+                    })
+            })
+            .cloned()
+        {
+            factory.push_back(node);
         }
     }
 }

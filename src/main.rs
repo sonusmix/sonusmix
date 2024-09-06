@@ -1,5 +1,5 @@
 mod components;
-mod graph_events;
+mod state;
 mod pipewire_api;
 
 use components::app::App;
@@ -14,7 +14,7 @@ fn main() {
 
     debug!("Hello, world!");
 
-    let update_fn = graph_events::link_pipewire();
+    let update_fn = state::link_pipewire();
     let pipewire_handle = PipewireHandle::init(update_fn).expect("failed to connect to Pipewire");
 
     let app = RelmApp::new("sonusmix");
