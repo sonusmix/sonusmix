@@ -102,7 +102,6 @@ impl SimpleComponent for ChooseNodeDialog {
                 self.visible = false;
             }
             ChooseNodeDialogMsg::NodeChosen(id, index) => {
-                self.nodes.guard().remove(index.current_index());
                 SONUSMIX_STATE.emit(SonusmixMsg::AddNode(id, self.list));
             }
         }
@@ -140,25 +139,6 @@ impl ChooseNodeDialog {
             factory.push_back(node);
         }
     }
-}
-
-fn get_inactive_nodes<'a>(graph: &Graph, active: &[u32], list: PortKind) -> Vec<u32> {
-    graph
-        .nodes
-        .values()
-        .filter_map(|node| {
-            (!active.contains(&node.id)).then_some(node.id).filter(|_| {
-                // Check if any of the node's ports correspond to `list`
-                node.ports.iter().any(|id| {
-                    graph
-                        .ports
-                        .get(&id)
-                        .map(|port| port.kind == list)
-                        .unwrap_or(false)
-                })
-            })
-        })
-        .collect()
 }
 
 struct ChooseNodeItem(Node);
