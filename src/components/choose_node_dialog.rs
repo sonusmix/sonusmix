@@ -8,44 +8,34 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::{
-    graph_events::subscribe_to_pipewire,
+    state::{subscribe_to_pipewire, SonusmixMsg, SonusmixState, SONUSMIX_STATE},
     pipewire_api::{Graph, Node, PortKind},
 };
 
 pub struct ChooseNodeDialog {
     graph: Arc<Graph>,
+    sonusmix_state: Arc<SonusmixState>,
     list: PortKind,
     nodes: FactoryVecDeque<ChooseNodeItem>,
     visible: bool,
 }
 
-impl ChooseNodeDialog {
-    pub fn active_list(&self) -> Option<PortKind> {
-        self.visible.then_some(self.list)
-    }
-}
-
 #[derive(Debug)]
 pub enum ChooseNodeDialogMsg {
     UpdateGraph(Arc<Graph>),
-    Show(PortKind, Vec<u32>),
+    SonusmixState(Arc<SonusmixState>),
+    Show(PortKind),
     #[doc(hidden)]
     Close,
     #[doc(hidden)]
     NodeChosen(u32, DynamicIndex),
 }
 
-#[derive(Debug)]
-pub enum ChooseNodeDialogOutput {
-    Closed,
-    NodeChosen(PortKind, u32),
-}
-
 #[relm4::component(pub)]
 impl SimpleComponent for ChooseNodeDialog {
     type Init = ();
     type Input = ChooseNodeDialogMsg;
-    type Output = ChooseNodeDialogOutput;
+    type Output = Infallible;
 
     view! {
         gtk::Window {
@@ -72,6 +62,7 @@ impl SimpleComponent for ChooseNodeDialog {
 
     fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let graph = subscribe_to_pipewire(sender.input_sender(), ChooseNodeDialogMsg::UpdateGraph);
+        let sonusmix_state = SONUSMIX_STATE.subscribe(sender.input_sender(), ChooseNodeDialogMsg::SonusmixState);
 
         let nodes = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -81,6 +72,7 @@ impl SimpleComponent for ChooseNodeDialog {
 
         let model = ChooseNodeDialog {
             graph,
+            sonusmix_state,
             list: PortKind::Source,
             nodes,
             visible: false,
@@ -92,24 +84,18 @@ impl SimpleComponent for ChooseNodeDialog {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: ChooseNodeDialogMsg, sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: ChooseNodeDialogMsg, _sender: ComponentSender<Self>) {
         match msg {
             ChooseNodeDialogMsg::UpdateGraph(graph) => {
                 self.graph = graph;
             }
-            ChooseNodeDialogMsg::Show(list, node_ids) => {
+            ChooseNodeDialogMsg::SonusmixState(state) => {
+                self.sonusmix_state = state;
+                self.update_inactive_nodes();
+            }
+            ChooseNodeDialogMsg::Show(list) => {
                 self.list = list;
-                {
-                    let mut factory = self.nodes.guard();
-                    factory.clear();
-                    for node in node_ids
-                        .into_iter()
-                        .filter_map(|id| self.graph.nodes.get(&id))
-                        .cloned()
-                    {
-                        factory.push_back(node);
-                    }
-                }
+                self.update_inactive_nodes();
                 self.visible = true;
             }
             ChooseNodeDialogMsg::Close => {
@@ -117,10 +103,62 @@ impl SimpleComponent for ChooseNodeDialog {
             }
             ChooseNodeDialogMsg::NodeChosen(id, index) => {
                 self.nodes.guard().remove(index.current_index());
-                let _ = sender.output(ChooseNodeDialogOutput::NodeChosen(self.list, id));
+                SONUSMIX_STATE.emit(SonusmixMsg::AddNode(id, self.list));
             }
         }
     }
+}
+
+impl ChooseNodeDialog {
+    pub fn active_list(&self) -> Option<PortKind> {
+        self.visible.then_some(self.list)
+    }
+
+    fn update_inactive_nodes(&mut self) {
+        let active = match self.list {
+            PortKind::Source => self.sonusmix_state.active_sources.as_slice(),
+            PortKind::Sink => self.sonusmix_state.active_sinks.as_slice(),
+        };
+        let mut factory = self.nodes.guard();
+        factory.clear();
+        for node in self
+            .graph
+            .nodes
+            .values()
+            .filter(|node| {
+                !active.contains(&node.id)
+                    && node.ports.iter().any(|id| {
+                        self.graph
+                            .ports
+                            .get(&id)
+                            .map(|port| port.kind == self.list)
+                            .unwrap_or(false)
+                    })
+            })
+            .cloned()
+        {
+            factory.push_back(node);
+        }
+    }
+}
+
+fn get_inactive_nodes<'a>(graph: &Graph, active: &[u32], list: PortKind) -> Vec<u32> {
+    graph
+        .nodes
+        .values()
+        .filter_map(|node| {
+            (!active.contains(&node.id)).then_some(node.id).filter(|_| {
+                // Check if any of the node's ports correspond to `list`
+                node.ports.iter().any(|id| {
+                    graph
+                        .ports
+                        .get(&id)
+                        .map(|port| port.kind == list)
+                        .unwrap_or(false)
+                })
+            })
+        })
+        .collect()
 }
 
 struct ChooseNodeItem(Node);

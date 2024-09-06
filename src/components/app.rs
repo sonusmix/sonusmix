@@ -7,11 +7,11 @@ use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
-use crate::graph_events::subscribe_to_pipewire;
+use crate::state::{subscribe_to_pipewire, SonusmixMsg, SONUSMIX_STATE};
 use crate::pipewire_api::{Graph, PortKind, ToPipewireMessage};
 
 use super::about::AboutComponent;
-use super::choose_node_dialog::{ChooseNodeDialog, ChooseNodeDialogMsg, ChooseNodeDialogOutput};
+use super::choose_node_dialog::{ChooseNodeDialog, ChooseNodeDialogMsg};
 use super::node::Node;
 
 pub struct App {
@@ -27,9 +27,9 @@ pub struct App {
 pub enum Msg {
     Ignore,
     UpdateGraph(Arc<Graph>),
+    SonusmixMsg(SonusmixMsg),
     OpenAbout,
     ChooseNode(PortKind),
-    NodeChosen(PortKind, u32),
 }
 
 #[relm4::component(pub)]
@@ -115,6 +115,7 @@ impl SimpleComponent for App {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let graph = subscribe_to_pipewire(sender.input_sender(), Msg::UpdateGraph);
+        SONUSMIX_STATE.subscribe_msg(sender.input_sender(), |msg| Msg::SonusmixMsg(msg.clone()));
 
         let sources = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -125,10 +126,7 @@ impl SimpleComponent for App {
         let choose_node_dialog = ChooseNodeDialog::builder()
             .transient_for(&root)
             .launch(())
-            .forward(sender.input_sender(), |msg| match msg {
-                ChooseNodeDialogOutput::Closed => Msg::Ignore,
-                ChooseNodeDialogOutput::NodeChosen(list, id) => Msg::NodeChosen(list, id),
-            });
+            .detach();
 
         let model = App {
             pw_sender,
@@ -156,54 +154,25 @@ impl SimpleComponent for App {
                     sender.input(Msg::ChooseNode(list));
                 }
             }
+            Msg::SonusmixMsg(s_msg) => match s_msg {
+                SonusmixMsg::AddNode(id, list) => match list {
+                    PortKind::Source => {
+                        self.sources.guard().push_back((id, self.pw_sender.clone()));
+                    }
+                    PortKind::Sink => {
+                        self.sinks.guard().push_back((id, self.pw_sender.clone()));
+                    }
+                },
+            },
             Msg::OpenAbout => {
                 self.about_component = Some(AboutComponent::builder().launch(()).detach());
             }
             Msg::ChooseNode(list) => {
-                let active = match list {
-                    PortKind::Source => &self.sources,
-                    PortKind::Sink => &self.sinks,
-                };
                 let _ = self
                     .choose_node_dialog
                     .sender()
-                    .send(ChooseNodeDialogMsg::Show(
-                        list,
-                        get_inactive_nodes(self.graph.as_ref(), active.iter(), list),
-                    ));
+                    .send(ChooseNodeDialogMsg::Show(list));
             }
-            Msg::NodeChosen(list, id) => match list {
-                PortKind::Source => {
-                    self.sources.guard().push_back((id, self.pw_sender.clone()));
-                }
-                PortKind::Sink => {
-                    self.sinks.guard().push_back((id, self.pw_sender.clone()));
-                }
-            },
         };
     }
-}
-
-fn get_inactive_nodes<'a>(
-    graph: &Graph,
-    active: impl IntoIterator<Item = &'a Node>,
-    list: PortKind,
-) -> Vec<u32> {
-    let active: Vec<u32> = active.into_iter().map(|node| node.id()).collect();
-    graph
-        .nodes
-        .values()
-        .filter_map(|node| {
-            (!active.contains(&node.id)).then_some(node.id).filter(|_| {
-                // Check if any of the node's ports correspond to `list`
-                node.ports.iter().any(|id| {
-                    graph
-                        .ports
-                        .get(&id)
-                        .map(|port| port.kind == list)
-                        .unwrap_or(false)
-                })
-            })
-        })
-        .collect()
 }

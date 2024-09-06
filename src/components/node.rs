@@ -5,14 +5,9 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::{
-    graph_events::subscribe_to_pipewire,
+    state::subscribe_to_pipewire,
     pipewire_api::{Graph, Node as PwNode, ToPipewireMessage},
 };
-
-fn calculate_slider_value(channel_volumes: &Vec<f32>) -> f64 {
-    ((channel_volumes.iter().sum::<f32>() / channel_volumes.len().max(1) as f32) as f64)
-        .powf(1.0 / 3.0)
-}
 
 pub struct Node {
     node: PwNode,
@@ -104,7 +99,7 @@ impl FactoryComponent for Node {
             node: subscribe_to_pipewire(sender.input_sender(), NodeMsg::UpdateGraph)
                 .nodes
                 .get(&id)
-                .expect("node component failed to find matching key on init")
+                .expect("node component failed to find matching node on init")
                 .clone(),
             enabled: true,
             pw_sender,
@@ -134,4 +129,9 @@ impl FactoryComponent for Node {
             }
         }
     }
+}
+
+fn calculate_slider_value(channel_volumes: &Vec<f32>) -> f64 {
+    ((channel_volumes.iter().sum::<f32>() / channel_volumes.len().max(1) as f32) as f64)
+        .powf(1.0 / 3.0)
 }
