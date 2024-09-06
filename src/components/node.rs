@@ -5,14 +5,18 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::{
+    pipewire_api::{Graph, Node as PwNode, PortKind, ToPipewireMessage},
     state::subscribe_to_pipewire,
-    pipewire_api::{Graph, Node as PwNode, ToPipewireMessage},
 };
+
+use super::connect_nodes::ConnectNodes;
 
 pub struct Node {
     node: PwNode,
+    list: PortKind,
     enabled: bool,
     pw_sender: mpsc::Sender<ToPipewireMessage>,
+    connect_nodes: Controller<ConnectNodes>,
 }
 
 impl Node {
@@ -33,7 +37,7 @@ pub enum NodeOutput {}
 
 #[relm4::factory(pub)]
 impl FactoryComponent for Node {
-    type Init = (u32, mpsc::Sender<ToPipewireMessage>);
+    type Init = (u32, PortKind, mpsc::Sender<ToPipewireMessage>);
     type Input = NodeMsg;
     type Output = NodeOutput;
     type CommandOutput = ();
@@ -41,6 +45,7 @@ impl FactoryComponent for Node {
 
     view! {
         #[root]
+        #[name = "root"]
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 8,
@@ -84,6 +89,12 @@ impl FactoryComponent for Node {
             },
 
             gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+
+                gtk::MenuButton {
+                    set_label: "Connections",
+                    // set_popover: Some(self.connect_nodes.widget()),
+                },
                 gtk::Label {
                     set_label: "THIS IS WHERE SOME\nMORE STUFF WILL GO",
                 }
@@ -92,18 +103,25 @@ impl FactoryComponent for Node {
     }
 
     fn init_model(
-        (id, pw_sender): (u32, mpsc::Sender<ToPipewireMessage>),
+        (id, list, pw_sender): (u32, PortKind, mpsc::Sender<ToPipewireMessage>),
         _index: &DynamicIndex,
         sender: FactorySender<Self>,
     ) -> Self {
+        let node = subscribe_to_pipewire(sender.input_sender(), NodeMsg::UpdateGraph)
+            .nodes
+            .get(&id)
+            .expect("node component failed to find matching node on init")
+            .clone();
+
+        let connect_nodes = ConnectNodes::builder()
+            .launch((node.id, list))
+            .forward(sender.input_sender(), |msg| match msg {});
         Self {
-            node: subscribe_to_pipewire(sender.input_sender(), NodeMsg::UpdateGraph)
-                .nodes
-                .get(&id)
-                .expect("node component failed to find matching node on init")
-                .clone(),
+            node,
+            list,
             enabled: true,
             pw_sender,
+            connect_nodes,
         }
     }
 

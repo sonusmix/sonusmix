@@ -99,9 +99,7 @@ impl SimpleComponent for App {
                             set_icon_name: "list-add-symbolic",
                             set_label: "Add Sink",
 
-                            connect_clicked[sender] => move |_| {
-                                sender.input(Msg::ChooseNode(PortKind::Sink));
-                            }
+                            connect_clicked => Msg::ChooseNode(PortKind::Sink),
                         }
                     },
                 }
@@ -157,10 +155,10 @@ impl SimpleComponent for App {
             Msg::SonusmixMsg(s_msg) => match s_msg {
                 SonusmixMsg::AddNode(id, list) => match list {
                     PortKind::Source => {
-                        self.sources.guard().push_back((id, self.pw_sender.clone()));
+                        self.sources.guard().push_back((id, list, self.pw_sender.clone()));
                     }
                     PortKind::Sink => {
-                        self.sinks.guard().push_back((id, self.pw_sender.clone()));
+                        self.sinks.guard().push_back((id, list, self.pw_sender.clone()));
                     }
                 },
             },

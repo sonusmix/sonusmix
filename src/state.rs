@@ -70,13 +70,14 @@ impl SonusmixReducer {
         *self.1.write() = Arc::new(state);
     }
 
-    pub fn subscribe_msg<Msg, F>(&self, sender: &relm4::Sender<Msg>, f: F)
+    pub fn subscribe_msg<Msg, F>(&self, sender: &relm4::Sender<Msg>, f: F) -> Arc<SonusmixState>
     where
         F: Fn(&SonusmixMsg) -> Msg + 'static + Send + Sync,
         Msg: Send + 'static,
     {
         self.0
             .subscribe_optional(sender, move |msg| msg.as_ref().map(&f));
+        self.1.read().clone()
     }
 
     pub fn subscribe<Msg, F>(&self, sender: &relm4::Sender<Msg>, f: F) -> Arc<SonusmixState>
