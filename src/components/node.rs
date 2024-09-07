@@ -93,7 +93,7 @@ impl FactoryComponent for Node {
 
                 gtk::MenuButton {
                     set_label: "Connections",
-                    // set_popover: Some(self.connect_nodes.widget()),
+                    set_popover: Some(self.connect_nodes.widget()),
                 },
                 gtk::Label {
                     set_label: "THIS IS WHERE SOME\nMORE STUFF WILL GO",

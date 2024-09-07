@@ -31,12 +31,11 @@ impl SimpleComponent for ConnectNodes {
     view! {
         gtk::Popover {
             set_autohide: true,
-            set_visible: true,
 
-            // #[local_ref]
-            // item_box -> gtk::Box {
-            //     set_orientation: gtk::Orientation::Vertical,
-            // }
+            #[local_ref]
+            item_box -> gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+            }
         }
     }
 
@@ -217,13 +216,29 @@ fn are_nodes_connected(
     }
 
     // If all of one node's ports are connected to by relevant links, nodes are completely connected
+    // TODO: Maybe save ports as "source ports" and "sink ports" on the node. That might help with
+    // being able to still connect to nodes that are temporarily missing
     if source
         .ports
         .iter()
+        .filter(|id| {
+            graph
+                .ports
+                .get(&id)
+                .map(|port| port.kind == PortKind::Source)
+                .unwrap_or(false)
+        })
         .all(|id| relevant_links.iter().any(|link| link.start_port == *id))
         || sink
             .ports
             .iter()
+            .filter(|id| {
+                graph
+                    .ports
+                    .get(&id)
+                    .map(|port| port.kind == PortKind::Sink)
+                    .unwrap_or(false)
+            })
             .all(|id| relevant_links.iter().any(|link| link.end_port == *id))
     {
         return Some(true);
