@@ -133,9 +133,9 @@ impl FactoryComponent for ConnectNodeItem {
                 #[watch]
                 set_label: Some(&self.node.name),
                 #[watch]
-                set_active?: self.connected,
+                set_active: self.connected.unwrap_or(false),
                 #[watch]
-                set_inconsistent: self.connected.is_some(),
+                set_inconsistent: self.connected.is_none(),
 
                 connect_toggled[sender, id = self.node.id] => move |check| {
                     // let _ = sender.output(ConnectNodeItemOutput::NodeChanged(id, check.is_active()));
@@ -203,7 +203,9 @@ fn are_nodes_connected(
         PortKind::Source => (&base_node.0, this_node),
         PortKind::Sink => (this_node, &base_node.0),
     };
+    // debug!("source: {source:?}, sink: {sink:?}");
     // Find all links connected between the two nodes we're searching for
+    // debug!("links: {:?}", graph.links);
     let relevant_links = graph
         .links
         .values()

@@ -390,10 +390,12 @@ impl Link {
 
         Ok(Self {
             id: object.id,
-            start_node: object.parse_fields([*LINK_INPUT_NODE], "integer")?,
-            start_port: object.parse_fields([*LINK_INPUT_PORT], "integer")?,
-            end_node: object.parse_fields([*LINK_OUTPUT_NODE], "integer")?,
-            end_port: object.parse_fields([*LINK_OUTPUT_PORT], "integer")?,
+            // The "input" is the node/port acting as an input, not the input to the link, and the
+            // same for output.
+            start_node: object.parse_fields([*LINK_OUTPUT_NODE], "integer")?,
+            start_port: object.parse_fields([*LINK_OUTPUT_PORT], "integer")?,
+            end_node: object.parse_fields([*LINK_INPUT_NODE], "integer")?,
+            end_port: object.parse_fields([*LINK_INPUT_PORT], "integer")?,
             proxy,
         })
     }
