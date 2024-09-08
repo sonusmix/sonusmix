@@ -2,7 +2,7 @@ use std::{
     fmt::Debug,
     rc::Rc,
     str::FromStr,
-    sync::{Arc, Mutex}
+    sync::{Arc, Mutex},
 };
 
 use derivative::Derivative;
@@ -12,15 +12,16 @@ use pipewire::{
     registry::{GlobalObject, Registry},
     spa::{
         param::ParamType,
-        pod::{deserialize::PodDeserializer, Value},
-        utils::dict::DictRef,
+        pod::{deserialize::PodDeserializer, object, Property, Value, ValueArray},
+        sys::SPA_PROP_channelVolumes,
+        utils::{dict::DictRef, SpaTypes},
     },
     types::ObjectType,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::{pod::NodeProps, SONUSMIX_APP_NAME};
+use super::SONUSMIX_APP_NAME;
 
 #[derive(Error, Debug)]
 pub enum ObjectConvertError {
@@ -300,6 +301,14 @@ impl Node {
             proxy: (),
             listener: (),
         }
+    }
+
+    pub(super) fn volume_channels_value(volume: Vec<f32>) -> Value {
+        Value::Object(object! {
+            SpaTypes::ObjectParamProps,
+            ParamType::Props,
+            Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(volume))),
+        })
     }
 }
 

@@ -1,13 +1,18 @@
 use std::io::Cursor;
 
 use anyhow::Result;
-use pipewire::spa::{param::ParamType, pod::{object, serialize::PodSerializer, Property, Value, ValueArray}, sys::SPA_PROP_channelVolumes, utils::SpaTypes};
+use pipewire::spa::{
+    param::ParamType,
+    pod::{object, serialize::PodSerializer, Property, Value, ValueArray},
+    sys::SPA_PROP_channelVolumes,
+    utils::SpaTypes,
+};
 
-use super::{pod::NodeProps, object::Node};
+use super::object::Node;
 
 #[derive(Debug, Copy, Clone)]
 pub(super) enum NodeAction {
-    ChangeVolume(f32)
+    ChangeVolume(f32),
 }
 
 impl NodeAction {
@@ -19,14 +24,14 @@ impl NodeAction {
     /// always referencing the bytes.
     // TODO: Try to return a Pod directly
     pub(super) fn apply(&self, node: &Node) -> Result<Vec<u8>> {
-        let node_props = match *self {
+        let value = match *self {
             NodeAction::ChangeVolume(volume) => {
                 let num_volume_channels = node.channel_volumes.len();
 
                 // assume that if a node has no volume channels, it does not
                 // support changing the volume.
                 if num_volume_channels == 0 {
-                    return Err(anyhow::Error::msg("The Node has no volume channels"))
+                    return Err(anyhow::Error::msg("The Node has no volume channels"));
                 }
 
                 // create a new vec of channels based on the length of the count of the existing channels
@@ -36,19 +41,14 @@ impl NodeAction {
                     new_channels.push(volume)
                 }
 
-                // create a new prop object
-                NodeProps::new(Value::Object(object! {
-                    SpaTypes::ObjectParamProps,
-                    ParamType::Props,
-                    Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(new_channels))),
-                }))
+                Node::volume_channels_value(new_channels)
             }
         };
 
-        let value = node_props.value();
         let pod_bytes: Cursor<Vec<u8>> = Cursor::new(Vec::new());
         // write the bytes
-        let (pod_bytes, _) = PodSerializer::serialize(pod_bytes, &value).expect("Unable to serialize NodeProps");
+        let (pod_bytes, _) =
+            PodSerializer::serialize(pod_bytes, &value).expect("Unable to serialize NodeProps");
         let pod_bytes = pod_bytes.into_inner();
 
         Ok(pod_bytes)

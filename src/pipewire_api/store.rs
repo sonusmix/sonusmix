@@ -1,9 +1,6 @@
 use anyhow::{anyhow, Result};
 use log::debug;
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-};
+use std::{collections::HashMap, fmt::Debug};
 
 use pipewire::{
     registry::{GlobalObject, Registry},
@@ -250,7 +247,7 @@ impl Store {
         let node_props = NodeProps::new(value);
 
         // save volume if node has volume
-        if let Some(volume) = node_props.get_volumes() {
+        if let Some(volume) = node_props.get_channel_volumes() {
             node.channel_volumes = volume.to_vec();
         }
     }
@@ -265,13 +262,13 @@ impl Store {
         debug!("got action node {id} to {:?}", action);
 
         let action_param_bytes = action.apply(node)?;
-        let action_param_pod = Pod::from_bytes(action_param_bytes.as_slice()).expect("apply returned invalid pod");
+        let action_param_pod =
+            Pod::from_bytes(action_param_bytes.as_slice()).expect("apply returned invalid pod");
 
         // send parameter to pipewire
         node.proxy.set_param(ParamType::Props, 0, action_param_pod);
 
-        node.proxy
-            .enum_params(7, Some(ParamType::Props), 0, 1);
+        node.proxy.enum_params(7, Some(ParamType::Props), 0, 1);
 
         Ok(())
     }
