@@ -264,8 +264,8 @@ impl Node {
         Ok(Self {
             id: object.id,
             name: props
-                .get(*NODE_NICK)
-                .or_else(|| props.get(*NODE_DESCRIPTION))
+                .get(*NODE_DESCRIPTION)
+                .or_else(|| props.get(*NODE_NICK))
                 .or_else(|| props.get(*APP_NAME))
                 .or_else(|| props.get(*NODE_NAME))
                 // TODO: List all of the possible field names
