@@ -227,6 +227,16 @@ impl SimpleComponent for App {
                             .push_back((id, list, self.pw_sender.clone()));
                     }
                 },
+                SonusmixMsg::RemoveNode(id, list) => {
+                    let nodes = match list {
+                        PortKind::Source => &mut self.sources,
+                        PortKind::Sink => &mut self.sinks,
+                    };
+                    let index = nodes.iter().position(|node| node.id() == id);
+                    if let Some(index) = index {
+                        nodes.guard().remove(index);
+                    }
+                }
             },
             Msg::OpenAbout => {
                 self.about_component = Some(AboutComponent::builder().launch(()).detach());

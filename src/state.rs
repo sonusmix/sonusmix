@@ -48,6 +48,7 @@ pub struct SonusmixState {
 #[derive(Debug, Clone)]
 pub enum SonusmixMsg {
     AddNode(u32, PortKind),
+    RemoveNode(u32, PortKind),
 }
 
 pub struct SonusmixReducer(
@@ -63,6 +64,15 @@ impl SonusmixReducer {
                 PortKind::Source => state.active_sources.push(id),
                 PortKind::Sink => state.active_sinks.push(id),
             },
+            SonusmixMsg::RemoveNode(id, list) => {
+                let nodes = match list {
+                    PortKind::Source => &mut state.active_sources,
+                    PortKind::Sink => &mut state.active_sinks,
+                };
+                if let Some(index) = nodes.iter().position(|node_id| *node_id == id) {
+                    nodes.remove(index);
+                }
+            }
         }
         {
             *self.0.write() = Some(msg);

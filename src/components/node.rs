@@ -1,9 +1,12 @@
 use std::sync::{mpsc, Arc};
 
 use log::debug;
-use relm4::gtk::prelude::*;
+use relm4::actions::RelmAction;
+use relm4::factory::FactoryView;
 use relm4::prelude::*;
+use relm4::{actions::RelmActionGroup, gtk::prelude::*};
 
+use crate::state::{SonusmixMsg, SONUSMIX_STATE};
 use crate::{
     pipewire_api::{Graph, Node as PwNode, PortKind, ToPipewireMessage},
     state::subscribe_to_pipewire,
@@ -30,10 +33,15 @@ pub enum NodeMsg {
     UpdateGraph(Arc<Graph>),
     #[doc(hidden)]
     Volume(f64),
+    #[doc(hidden)]
+    Remove,
 }
 
 #[derive(Debug, Clone)]
 pub enum NodeOutput {}
+
+relm4::new_action_group!(NodeMenuActionGroup, "node-menu");
+relm4::new_stateless_action!(RemoveAction, NodeMenuActionGroup, "remove");
 
 #[relm4::factory(pub)]
 impl FactoryComponent for Node {
@@ -45,7 +53,6 @@ impl FactoryComponent for Node {
 
     view! {
         #[root]
-        #[name = "root"]
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 8,
@@ -95,14 +102,29 @@ impl FactoryComponent for Node {
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
 
-                gtk::MenuButton {
-                    set_label: "Connections",
-                    set_popover: Some(self.connect_nodes.widget()),
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+
+                    gtk::MenuButton {
+                        set_label: "Connections",
+                        set_popover: Some(self.connect_nodes.widget()),
+                    },
+                    #[name(node_menu_button)]
+                    gtk::MenuButton {
+                        set_icon_name: "view-more-symbolic",
+                        set_menu_model: Some(&node_menu),
+                    },
                 },
                 gtk::Label {
                     set_label: "THIS IS WHERE SOME\nMORE STUFF WILL GO",
                 }
             }
+        }
+    }
+
+    menu! {
+        node_menu: {
+            "Remove" => RemoveAction,
         }
     }
 
@@ -129,6 +151,28 @@ impl FactoryComponent for Node {
         }
     }
 
+    fn init_widgets(
+        &mut self,
+        _index: &Self::Index,
+        root: Self::Root,
+        _returned_widget: &<Self::ParentWidget as FactoryView>::ReturnedWidget,
+        sender: FactorySender<Self>,
+    ) -> Self::Widgets {
+        let widgets = view_output!();
+
+        let mut group = RelmActionGroup::<NodeMenuActionGroup>::new();
+        let remove_action: RelmAction<RemoveAction> = RelmAction::new_stateless({
+            let sender = sender.clone();
+            move |_| {
+                sender.input(NodeMsg::Remove);
+            }
+        });
+        group.add_action(remove_action);
+        group.register_for_widget(&widgets.node_menu_button);
+
+        widgets
+    }
+
     fn update(&mut self, msg: NodeMsg, _sender: FactorySender<Self>) {
         match msg {
             NodeMsg::UpdateGraph(graph) => {
@@ -145,6 +189,9 @@ impl FactoryComponent for Node {
                     self.node.id,
                     volume.powf(3.0) as f32,
                 ));
+            }
+            NodeMsg::Remove => {
+                SONUSMIX_STATE.emit(SonusmixMsg::RemoveNode(self.node.id, self.list));
             }
         }
     }
