@@ -1,6 +1,9 @@
-use std::convert::Infallible;
+use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::{cell::LazyCell, convert::Infallible};
 
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use gtk::glib::Propagation;
 use log::debug;
 use relm4::factory::FactoryVecDeque;
@@ -18,7 +21,7 @@ pub struct ChooseNodeDialog {
     list: PortKind,
     nodes: FactoryVecDeque<ChooseNodeItem>,
     visible: bool,
-    list_visible: bool,
+    search_text: String,
 }
 
 #[derive(Debug)]
@@ -118,7 +121,7 @@ impl SimpleComponent for ChooseNodeDialog {
                         set_halign: gtk::Align::Center,
 
                         #[watch]
-                        set_label: &format!("No remaining {} found", match model.list {
+                        set_label: &format!("No matching {} found", match model.list {
                             PortKind::Source => "sources",
                             PortKind::Sink => "sinks",
                         }),
@@ -154,7 +157,7 @@ impl SimpleComponent for ChooseNodeDialog {
             list: PortKind::Source,
             nodes,
             visible: false,
-            list_visible: true,
+            search_text: String::new(),
         };
 
         let nodes_list_box = model.nodes.widget();
@@ -187,34 +190,9 @@ impl SimpleComponent for ChooseNodeDialog {
             ChooseNodeDialogMsg::NodeChosen(id) => {
                 SONUSMIX_STATE.emit(SonusmixMsg::AddNode(id, self.list));
             }
-            ChooseNodeDialogMsg::SearchUpdated(text) => {
-                if text.is_empty() {
-                    self.update_inactive_nodes();
-                    return;
-                }
-
-                // hide current list
-                // self.list_visible = false;
-
-                let active = match self.list {
-                    PortKind::Source => self.sonusmix_state.active_sources.as_slice(),
-                    PortKind::Sink => self.sonusmix_state.active_sinks.as_slice(),
-                };
-
-                // search only by node id if only number
-                if let Ok(num) = &text.parse::<u32>() {
-                    if active.contains(num) {
-                        return;
-                    }
-                    let mut factory = self.nodes.guard();
-                    factory.clear();
-                    if let Some(node) = self.graph.nodes.get(num) {
-                        factory.push_back(node.clone());
-                    }
-                }
-
-                // self.list_visible = true;
-                // TODO: fuzzy search
+            ChooseNodeDialogMsg::SearchUpdated(search_text) => {
+                self.search_text = search_text;
+                self.update_inactive_nodes();
             }
         }
     }
@@ -232,10 +210,12 @@ impl ChooseNodeDialog {
         };
         let mut factory = self.nodes.guard();
         factory.clear();
-        for node in self
+
+        let mut nodes = self
             .graph
             .nodes
             .values()
+            // Filter to only sources or sinks
             .filter(|node| {
                 !active.contains(&node.id)
                     && node.ports.iter().any(|id| {
@@ -247,7 +227,28 @@ impl ChooseNodeDialog {
                     })
             })
             .cloned()
-        {
+            .collect::<Vec<_>>();
+
+        nodes.sort_by(|a, b| a.name.cmp(&b.name));
+        if !self.search_text.is_empty() {
+            let fuzzy_matcher = SkimMatcherV2::default().smart_case();
+            // Computing the match twice is simpler by far, and probably isn't a performance
+            // issue. If it is, we can come back to this later.
+            nodes.retain(|node| {
+                fuzzy_matcher
+                    .fuzzy_match(&node.name, &self.search_text)
+                    .is_some()
+            });
+            nodes.sort_by_cached_key(|node| {
+                std::cmp::Reverse(
+                    fuzzy_matcher
+                        .fuzzy_match(&node.name, &self.search_text)
+                        .expect("No non-matching nodes should be remaining in the vec"),
+                )
+            })
+        }
+
+        for node in nodes {
             factory.push_back(node);
         }
     }
