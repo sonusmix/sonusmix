@@ -65,8 +65,12 @@ impl FactoryComponent for Node {
 
                     gtk::Label {
                         set_hexpand: true,
+                        set_ellipsize: gtk::pango::EllipsizeMode::End,
+
                         #[watch]
                         set_label: &self.node.name,
+                        #[watch]
+                        set_tooltip: &self.node.name,
                         set_css_classes: &["heading"],
                     },
 

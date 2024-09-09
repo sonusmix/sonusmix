@@ -44,7 +44,6 @@ impl SimpleComponent for ConnectNodes {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        debug!("popover created");
         let graph = subscribe_to_pipewire(sender.input_sender(), ConnectNodesMsg::UpdateGraph);
         let sonusmix_state =
             SONUSMIX_STATE.subscribe(sender.input_sender(), ConnectNodesMsg::SonusmixState);
