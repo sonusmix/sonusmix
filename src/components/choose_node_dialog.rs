@@ -17,7 +17,6 @@ pub struct ChooseNodeDialog {
     sonusmix_state: Arc<SonusmixState>,
     list: PortKind,
     nodes: FactoryVecDeque<ChooseNodeItem>,
-    entry_buffer: gtk::EntryBuffer,
     visible: bool,
     list_visible: bool,
 }
@@ -34,7 +33,7 @@ pub enum ChooseNodeDialogMsg {
     #[doc(hidden)]
     NodeChosen(u32),
     #[doc(hidden)]
-    SearchUpdated,
+    SearchUpdated(String),
 }
 
 #[relm4::component(pub)]
@@ -48,6 +47,7 @@ impl SimpleComponent for ChooseNodeDialog {
             set_modal: true,
             #[watch]
             set_visible: model.visible,
+            set_default_size: (-1, 500),
 
             add_controller = gtk::EventControllerKey {
                 connect_key_pressed[sender] => move |_, key, _, _| {
@@ -72,22 +72,22 @@ impl SimpleComponent for ChooseNodeDialog {
 
                     connect_visible_child_name_notify[sender] => move |stack| {
                         match stack.visible_child_name().as_ref().map(|name| name.as_str()) {
-                            Some("Sources") => sender.input(ChooseNodeDialogMsg::ListChanged(PortKind::Source)),
-                            Some("Sinks") => sender.input(ChooseNodeDialogMsg::ListChanged(PortKind::Sink)),
+                            Some("sources") => sender.input(ChooseNodeDialogMsg::ListChanged(PortKind::Source)),
+                            Some("sinks") => sender.input(ChooseNodeDialogMsg::ListChanged(PortKind::Sink)),
                             _ => {}
                         }
                     } @list_change_handler,
 
-                    add_titled[Some("Sources"), "Sources"] = &gtk::Box {},
-                    add_titled[Some("Sinks"), "Sinks"] = &gtk::Box {},
+                    add_titled[Some("sources"), "Add Sources"] = &gtk::Box {},
+                    add_titled[Some("sinks"), "Add Sinks"] = &gtk::Box {},
 
                     // This needs to be set after the children are added, so it's at the bottom
                     // instead of the top
                     #[watch]
                     #[block_signal(list_change_handler)]
                     set_visible_child_name: match model.list {
-                        PortKind::Source => "Sources",
-                        PortKind::Sink => "Sinks",
+                        PortKind::Source => "sources",
+                        PortKind::Sink => "sinks",
                     },
                 },
 
@@ -100,30 +100,40 @@ impl SimpleComponent for ChooseNodeDialog {
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
+                // set_margin_all: 8,
 
-                gtk::Entry {
-                    set_visible: true,
-                    set_buffer: &model.entry_buffer,
+                gtk::SearchEntry {
+                    set_margin_all: 8,
+                    set_placeholder_text: Some("Search..."),
 
-                    connect_changed[sender] => move |_| {
-                        sender.input(ChooseNodeDialogMsg::SearchUpdated)
+                    connect_search_changed[sender] => move |search| {
+                        sender.input(ChooseNodeDialogMsg::SearchUpdated(String::from(search.text())));
                     }
                 },
 
-                #[local_ref]
-                nodes_box -> gtk::Box {
-                    #[watch]
-                    set_visible: model.list_visible,
-                    set_orientation: gtk::Orientation::Vertical,
-                },
+                if model.nodes.is_empty() {
+                    gtk::Label {
+                        set_vexpand: true,
+                        set_valign: gtk::Align::Center,
+                        set_halign: gtk::Align::Center,
 
-                gtk::Label {
-                    set_vexpand: true,
-                    set_valign: gtk::Align::Center,
-                    set_halign: gtk::Align::Center,
-                    #[watch]
-                    set_visible: model.nodes.is_empty(),
-                    set_text: "No object found"
+                        #[watch]
+                        set_label: &format!("No remaining {} found", match model.list {
+                            PortKind::Source => "sources",
+                            PortKind::Sink => "sinks",
+                        }),
+                    }
+                } else {
+                    gtk::ScrolledWindow {
+                        set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
+                        set_propagate_natural_height: true,
+
+                        #[local_ref]
+                        nodes_list_box -> gtk::ListBox {
+                            set_selection_mode: gtk::SelectionMode::None,
+                            set_show_separators: true,
+                        }
+                    }
                 }
             },
         }
@@ -135,7 +145,7 @@ impl SimpleComponent for ChooseNodeDialog {
             SONUSMIX_STATE.subscribe(sender.input_sender(), ChooseNodeDialogMsg::SonusmixState);
 
         let nodes = FactoryVecDeque::builder()
-            .launch(gtk::Box::default())
+            .launch(gtk::ListBox::new())
             .forward(sender.input_sender(), ChooseNodeDialogMsg::NodeChosen);
 
         let model = ChooseNodeDialog {
@@ -143,12 +153,11 @@ impl SimpleComponent for ChooseNodeDialog {
             sonusmix_state,
             list: PortKind::Source,
             nodes,
-            entry_buffer: gtk::EntryBuffer::new(Some("")),
             visible: false,
             list_visible: true,
         };
 
-        let nodes_box = model.nodes.widget();
+        let nodes_list_box = model.nodes.widget();
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
@@ -178,16 +187,14 @@ impl SimpleComponent for ChooseNodeDialog {
             ChooseNodeDialogMsg::NodeChosen(id) => {
                 SONUSMIX_STATE.emit(SonusmixMsg::AddNode(id, self.list));
             }
-            ChooseNodeDialogMsg::SearchUpdated => {
-                let text = self.entry_buffer.text();
-
+            ChooseNodeDialogMsg::SearchUpdated(text) => {
                 if text.is_empty() {
                     self.update_inactive_nodes();
                     return;
                 }
 
                 // hide current list
-                self.list_visible = false;
+                // self.list_visible = false;
 
                 let active = match self.list {
                     PortKind::Source => self.sonusmix_state.active_sources.as_slice(),
@@ -206,7 +213,7 @@ impl SimpleComponent for ChooseNodeDialog {
                     }
                 }
 
-                self.list_visible = true;
+                // self.list_visible = true;
                 // TODO: fuzzy search
             }
         }
@@ -254,21 +261,25 @@ impl FactoryComponent for ChooseNodeItem {
     type Input = Infallible;
     type Output = u32;
     type CommandOutput = ();
-    type ParentWidget = gtk::Box;
+    type ParentWidget = gtk::ListBox;
 
     view! {
-        gtk::Box {
-            set_orientation: gtk::Orientation::Horizontal,
-            set_spacing: 8,
+        gtk::ListBoxRow {
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_margin_end: 8,
+                set_spacing: 8,
 
-            gtk::Button {
-                set_icon_name: "list-add-symbolic",
-                connect_clicked[sender, id = self.0.id] => move |_| {
-                    let _ = sender.output(id);
+                gtk::Button {
+                    set_has_frame: false,
+                    set_icon_name: "list-add-symbolic",
+                    connect_clicked[sender, id = self.0.id] => move |_| {
+                        let _ = sender.output(id);
+                    },
                 },
-            },
-            gtk::Label {
-                set_label: &self.0.name,
+                gtk::Label {
+                    set_label: &self.0.name,
+                }
             }
         }
     }
