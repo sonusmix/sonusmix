@@ -8,8 +8,8 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::{
-    state::{subscribe_to_pipewire, SonusmixMsg, SonusmixState, SONUSMIX_STATE},
     pipewire_api::{Graph, Node, PortKind},
+    state::{subscribe_to_pipewire, SonusmixMsg, SonusmixState, SONUSMIX_STATE},
 };
 
 pub struct ChooseNodeDialog {
@@ -28,9 +28,11 @@ pub enum ChooseNodeDialogMsg {
     SonusmixState(Arc<SonusmixState>),
     Show(PortKind),
     #[doc(hidden)]
+    ListChanged(PortKind),
+    #[doc(hidden)]
     Close,
     #[doc(hidden)]
-    NodeChosen(u32, DynamicIndex),
+    NodeChosen(u32),
     #[doc(hidden)]
     SearchUpdated,
 }
@@ -44,11 +46,6 @@ impl SimpleComponent for ChooseNodeDialog {
     view! {
         gtk::Window {
             set_modal: true,
-            #[watch]
-            set_title: Some(match model.list {
-                PortKind::Source => "Choose Source",
-                PortKind::Sink => "Choose Sink",
-            }),
             #[watch]
             set_visible: model.visible,
 
@@ -66,6 +63,39 @@ impl SimpleComponent for ChooseNodeDialog {
             connect_close_request[sender] => move |_| {
                 sender.input(ChooseNodeDialogMsg::Close);
                 Propagation::Stop
+            },
+
+            #[wrap(Some)]
+            set_titlebar = &gtk::HeaderBar {
+                #[name(list_switcher_dummy)]
+                pack_start = &gtk::Stack {
+
+                    connect_visible_child_name_notify[sender] => move |stack| {
+                        match stack.visible_child_name().as_ref().map(|name| name.as_str()) {
+                            Some("Sources") => sender.input(ChooseNodeDialogMsg::ListChanged(PortKind::Source)),
+                            Some("Sinks") => sender.input(ChooseNodeDialogMsg::ListChanged(PortKind::Sink)),
+                            _ => {}
+                        }
+                    } @list_change_handler,
+
+                    add_titled[Some("Sources"), "Sources"] = &gtk::Box {},
+                    add_titled[Some("Sinks"), "Sinks"] = &gtk::Box {},
+
+                    // This needs to be set after the children are added, so it's at the bottom
+                    // instead of the top
+                    #[watch]
+                    #[block_signal(list_change_handler)]
+                    set_visible_child_name: match model.list {
+                        PortKind::Source => "Sources",
+                        PortKind::Sink => "Sinks",
+                    },
+                },
+
+                #[wrap(Some)]
+                set_title_widget = &gtk::StackSwitcher {
+                    set_visible: true,
+                    set_stack: Some(&list_switcher_dummy),
+                }
             },
 
             gtk::Box {
@@ -101,13 +131,12 @@ impl SimpleComponent for ChooseNodeDialog {
 
     fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let graph = subscribe_to_pipewire(sender.input_sender(), ChooseNodeDialogMsg::UpdateGraph);
-        let sonusmix_state = SONUSMIX_STATE.subscribe(sender.input_sender(), ChooseNodeDialogMsg::SonusmixState);
+        let sonusmix_state =
+            SONUSMIX_STATE.subscribe(sender.input_sender(), ChooseNodeDialogMsg::SonusmixState);
 
         let nodes = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
-            .forward(sender.input_sender(), |NodeChosen(id, index)| {
-                ChooseNodeDialogMsg::NodeChosen(id, index)
-            });
+            .forward(sender.input_sender(), ChooseNodeDialogMsg::NodeChosen);
 
         let model = ChooseNodeDialog {
             graph,
@@ -139,10 +168,14 @@ impl SimpleComponent for ChooseNodeDialog {
                 self.update_inactive_nodes();
                 self.visible = true;
             }
+            ChooseNodeDialogMsg::ListChanged(list) => {
+                self.list = list;
+                self.update_inactive_nodes();
+            }
             ChooseNodeDialogMsg::Close => {
                 self.visible = false;
             }
-            ChooseNodeDialogMsg::NodeChosen(id, index) => {
+            ChooseNodeDialogMsg::NodeChosen(id) => {
                 SONUSMIX_STATE.emit(SonusmixMsg::AddNode(id, self.list));
             }
             ChooseNodeDialogMsg::SearchUpdated => {
@@ -164,7 +197,7 @@ impl SimpleComponent for ChooseNodeDialog {
                 // search only by node id if only number
                 if let Ok(num) = &text.parse::<u32>() {
                     if active.contains(num) {
-                        return
+                        return;
                     }
                     let mut factory = self.nodes.guard();
                     factory.clear();
@@ -215,14 +248,11 @@ impl ChooseNodeDialog {
 
 struct ChooseNodeItem(Node);
 
-#[derive(Debug)]
-struct NodeChosen(u32, DynamicIndex);
-
 #[relm4::factory]
 impl FactoryComponent for ChooseNodeItem {
     type Init = Node;
     type Input = Infallible;
-    type Output = NodeChosen;
+    type Output = u32;
     type CommandOutput = ();
     type ParentWidget = gtk::Box;
 
@@ -233,8 +263,8 @@ impl FactoryComponent for ChooseNodeItem {
 
             gtk::Button {
                 set_icon_name: "list-add-symbolic",
-                connect_clicked[sender, index, id = self.0.id] => move |_| {
-                    let _ = sender.output(NodeChosen(id, index.clone()));
+                connect_clicked[sender, id = self.0.id] => move |_| {
+                    let _ = sender.output(id);
                 },
             },
             gtk::Label {
