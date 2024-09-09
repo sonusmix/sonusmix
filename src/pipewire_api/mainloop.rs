@@ -148,10 +148,9 @@ pub(super) fn init_mainloop(
             let context =
                 PwContext::new(&mainloop).context("Failed to iniaizlize Pipewire context")?;
             let pw_core = context
-                // .connect(Some(properties! {
-                //     *MEDIA_CATEGORY => "Manager",
-                // }))
-                .connect(None)
+                .connect(Some(properties! {
+                    *MEDIA_CATEGORY => "Manager",
+                }))
                 .context("Failed to connect to Pipewire")?;
             let registry = pw_core
                 .get_registry()
