@@ -70,6 +70,19 @@ impl FactoryComponent for Node {
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
 
+                    #[name(icon_view)]
+                    gtk::Image {
+                        set_margin_end: 6,
+                        // Some icon themes use symbolic-only icons below a certain size.
+                        // Unfortunately, because Gtk thinks they aren't symbolic, it doesn't
+                        // properly recolor them, so here we let the Gtk theme set the icon size,
+                        // while ensuring that the icons don't get too small.
+                        #[watch]
+                        set_pixel_size: icon_view.pixel_size().max(20),
+                        #[watch]
+                        set_icon_name: Some(self.node.identifier.icon_name()),
+                    },
+
                     gtk::Label {
                         set_hexpand: true,
                         set_halign: gtk::Align::Start,
@@ -129,7 +142,7 @@ impl FactoryComponent for Node {
                     set_label: "THIS IS WHERE SOME\nMORE STUFF WILL GO",
                 }
             }
-        }
+        },
     }
 
     menu! {
