@@ -21,7 +21,7 @@ use pipewire::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::SONUSMIX_APP_NAME;
+use super::{identifier::Identifier, SONUSMIX_APP_NAME};
 
 #[derive(Error, Debug)]
 pub enum ObjectConvertError {
@@ -228,21 +228,18 @@ impl Device {
     }
 }
 
-#[derive(Derivative, Clone, Serialize, Deserialize)]
+#[derive(Derivative, Clone)]
 #[derivative(Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListener>> {
     pub id: u32,
-    pub name: String,
+    pub identifier: Identifier,
     pub endpoint: EndpointId,
     pub ports: Vec<u32>,
     // #[serde(skip)]
     pub channel_volumes: Vec<f32>,
-    #[serde(skip)]
     pub(super) proxy: P,
     // listener is set by mainloop
     #[derivative(Debug = "ignore")]
-    #[serde(skip)]
     pub(super) listener: L,
 }
 
@@ -264,14 +261,7 @@ impl Node {
 
         Ok(Self {
             id: object.id,
-            name: props
-                .get(*NODE_DESCRIPTION)
-                .or_else(|| props.get(*NODE_NICK))
-                .or_else(|| props.get(*APP_NAME))
-                .or_else(|| props.get(*NODE_NAME))
-                // TODO: List all of the possible field names
-                .ok_or_else(|| object.missing_field(*NODE_NAME))?
-                .to_owned(),
+            identifier: Identifier::from_props(props),
             endpoint: if let Some(id) = props.get(*DEVICE_ID) {
                 id.parse()
                     .map(EndpointId::Device)
@@ -294,7 +284,7 @@ impl Node {
     pub fn without_proxy(&self) -> Node<(), ()> {
         Node {
             id: self.id,
-            name: self.name.clone(),
+            identifier: self.identifier.clone(),
             endpoint: self.endpoint,
             ports: self.ports.clone(),
             channel_volumes: self.channel_volumes.clone(),

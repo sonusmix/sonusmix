@@ -32,9 +32,19 @@ impl SimpleComponent for ConnectNodes {
         gtk::Popover {
             set_autohide: true,
 
-            #[local_ref]
-            item_box -> gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
+            if model.items.is_empty() {
+                gtk::Label {
+                    set_valign: gtk::Align::Center,
+                    set_halign: gtk::Align::Center,
+
+                    #[watch]
+                    set_label: "Nothing to connect to",
+                }
+            } else {
+                #[local_ref]
+                *item_box -> gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                }
             }
         }
     }
@@ -130,7 +140,7 @@ impl FactoryComponent for ConnectNodeItem {
 
             gtk::CheckButton {
                 #[watch]
-                set_label: Some(&self.node.name),
+                set_label: Some(&self.node.identifier.human_name()),
                 #[watch]
                 set_active: self.connected.unwrap_or(false),
                 #[watch]
@@ -139,9 +149,6 @@ impl FactoryComponent for ConnectNodeItem {
                 connect_toggled[sender, id = self.node.id] => move |check| {
                     // let _ = sender.output(ConnectNodeItemOutput::NodeChanged(id, check.is_active()));
                 }
-            },
-            gtk::Label {
-                set_label: &self.node.name,
             }
         }
     }

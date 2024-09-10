@@ -3,6 +3,7 @@ use log::debug;
 use std::{collections::HashMap, fmt::Debug};
 
 use pipewire::{
+    node::NodeInfoRef,
     registry::{GlobalObject, Registry},
     spa::{
         param::ParamType,
@@ -250,6 +251,17 @@ impl Store {
         if let Some(volume) = node_props.get_channel_volumes() {
             node.channel_volumes = volume.to_vec();
         }
+    }
+
+    pub(super) fn update_node_info(&mut self, node_info: &NodeInfoRef) {
+        let Some(props) = node_info.props() else {
+            return;
+        };
+        let node = self
+            .nodes
+            .get_mut(&node_info.id())
+            .expect("The node was destroyed unexpectedly");
+        node.identifier.update_from_props(props);
     }
 
     /// Send an action to a pipewire node.

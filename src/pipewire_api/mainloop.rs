@@ -10,21 +10,11 @@ use anyhow::{Context, Result};
 
 use log::{debug, error};
 use pipewire::{
-    context::Context as PwContext,
-    keys::*,
-    main_loop::MainLoop,
-    properties::properties,
-    registry::Registry,
-    spa::{
-        param::ParamType,
-        pod::{deserialize::PodDeserializer, PodObject},
-        sys::{SPA_PARAM_Props, SPA_PROP_channelVolumes},
-        utils::Id,
-    },
-    types::ObjectType,
+    context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop,
+    properties::properties, registry::Registry, spa::param::ParamType, types::ObjectType,
 };
 
-use crate::pipewire_api::{actions::NodeAction, pod::NodeProps};
+use crate::pipewire_api::actions::NodeAction;
 
 use super::{store::Store, FromPipewireMessage, Graph, ToPipewireMessage};
 
@@ -35,6 +25,7 @@ use super::{store::Store, FromPipewireMessage, Graph, ToPipewireMessage};
 /// it gets.
 struct Master {
     store: Rc<RefCell<Store>>,
+    pw_core: Rc<Core>,
     registry: Rc<Registry>,
     sender: pipewire::channel::Sender<ToPipewireMessage>,
 }
@@ -42,14 +33,31 @@ struct Master {
 impl Master {
     fn new(
         store: Rc<RefCell<Store>>,
+        pw_core: Rc<Core>,
         registry: Rc<Registry>,
         sender: pipewire::channel::Sender<ToPipewireMessage>,
     ) -> Self {
         Master {
             store,
+            pw_core,
             registry,
             sender,
         }
+    }
+
+    /// Listen for info events on the core.
+    /// see [Core::add_listener_local()]
+    fn info_listener(&mut self) -> pipewire::core::Listener {
+        self.pw_core
+            .add_listener_local()
+            .info({
+                let store = self.store.clone();
+                let sender = self.sender.clone();
+                move |info| {
+                    // debug!("info event: {info:?}");
+                }
+            })
+            .register()
     }
 
     /// Listen for new events in the registry.
@@ -84,7 +92,7 @@ impl Master {
 
     /// Listen for remove events in the registry.
     /// See [Registry::add_listener_local()]
-    fn remove_registry_listener(&mut self) -> pipewire::registry::Listener {
+    fn registry_remove_listener(&mut self) -> pipewire::registry::Listener {
         self.registry
             .add_listener_local()
             .global_remove({
@@ -110,6 +118,14 @@ pub fn node_listener(
         node.listener = Some(
             node.proxy
                 .add_listener_local()
+                .info({
+                    let store = store.clone();
+                    let sender = sender.clone();
+                    move |info| {
+                        store.borrow_mut().update_node_info(info);
+                        sender.send(ToPipewireMessage::Update);
+                    }
+                })
                 .param({
                     move |_, type_, _, _, pod| {
                         let mut store_borrow = store.borrow_mut();
@@ -169,13 +185,15 @@ pub(super) fn init_mainloop(
             }
         };
         let mainloop = Rc::new(mainloop);
+        let pw_core = Rc::new(pw_core);
         let registry = Rc::new(registry);
 
         // init registry listener
-        let mut master = Master::new(store.clone(), registry, to_pw_tx_clone);
+        let mut master = Master::new(store.clone(), pw_core.clone(), registry, to_pw_tx_clone);
 
         let _listener = master.registry_listener();
-        let _remove_listener = master.remove_registry_listener();
+        let _remove_listener = master.registry_remove_listener();
+        let _info_listener = master.info_listener();
 
         let _receiver = receiver.attach(mainloop.loop_(), {
             let mainloop = mainloop.clone();
@@ -183,7 +201,9 @@ pub(super) fn init_mainloop(
             move |message| match message {
                 ToPipewireMessage::Update => update_fn(store.borrow().dump_graph()),
                 ToPipewireMessage::ChangeVolume(id, volume) => {
-                    store.borrow_mut().node_action(id, NodeAction::ChangeVolume(volume));
+                    store
+                        .borrow_mut()
+                        .node_action(id, NodeAction::ChangeVolume(volume));
                 }
                 ToPipewireMessage::Exit => mainloop.quit(),
             }

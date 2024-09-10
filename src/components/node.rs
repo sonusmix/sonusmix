@@ -72,12 +72,13 @@ impl FactoryComponent for Node {
 
                     gtk::Label {
                         set_hexpand: true,
+                        set_halign: gtk::Align::Start,
                         set_ellipsize: gtk::pango::EllipsizeMode::End,
 
                         #[watch]
-                        set_label: &self.node.name,
+                        set_label: &self.node.identifier.human_name(),
                         #[watch]
-                        set_tooltip: &self.node.name,
+                        set_tooltip: &self.node.identifier.human_name(),
                         set_css_classes: &["heading"],
                     },
 
@@ -86,7 +87,16 @@ impl FactoryComponent for Node {
                         set_label: &format!("id: {}", self.node.id),
                     }
                 },
+                gtk::Label {
+                    set_halign: gtk::Align::Start,
+                    set_ellipsize: gtk::pango::EllipsizeMode::End,
+                    set_css_classes: &["caption", "dim-label"],
 
+                    #[watch]
+                    set_label: &self.node.identifier.details().unwrap_or_default(),
+                    #[watch]
+                    set_tooltip?: self.node.identifier.details(),
+                },
                 gtk::Scale {
                     set_range: (0.0, 1.0),
                     #[watch]

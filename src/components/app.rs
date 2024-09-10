@@ -59,7 +59,7 @@ impl Component for App {
     view! {
         main_window = gtk::ApplicationWindow {
             set_title: Some("Sonusmix"),
-            set_default_size: (800, 600),
+            set_default_size: (1000, 700),
 
             #[wrap(Some)]
             set_titlebar = &gtk::HeaderBar {

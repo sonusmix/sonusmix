@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::sync::Arc;
-use std::{cell::LazyCell, convert::Infallible};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -229,20 +229,20 @@ impl ChooseNodeDialog {
             .cloned()
             .collect::<Vec<_>>();
 
-        nodes.sort_by(|a, b| a.name.cmp(&b.name));
+        nodes.sort_by(|a, b| a.identifier.human_name().cmp(&b.identifier.human_name()));
         if !self.search_text.is_empty() {
             let fuzzy_matcher = SkimMatcherV2::default().smart_case();
             // Computing the match twice is simpler by far, and probably isn't a performance
             // issue. If it is, we can come back to this later.
             nodes.retain(|node| {
                 fuzzy_matcher
-                    .fuzzy_match(&node.name, &self.search_text)
+                    .fuzzy_match(&node.identifier.human_name(), &self.search_text)
                     .is_some()
             });
             nodes.sort_by_cached_key(|node| {
                 std::cmp::Reverse(
                     fuzzy_matcher
-                        .fuzzy_match(&node.name, &self.search_text)
+                        .fuzzy_match(&node.identifier.human_name(), &self.search_text)
                         .expect("No non-matching nodes should be remaining in the vec"),
                 )
             })
@@ -279,7 +279,7 @@ impl FactoryComponent for ChooseNodeItem {
                     },
                 },
                 gtk::Label {
-                    set_label: &self.0.name,
+                    set_label: &self.0.identifier.human_name(),
                 }
             }
         }

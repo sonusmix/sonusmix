@@ -3,6 +3,7 @@ mod object;
 mod pod;
 mod store;
 mod actions;
+mod identifier;
 
 use std::{collections::HashMap, sync::mpsc, thread};
 
@@ -63,7 +64,7 @@ pub type Node = object::Node<(), ()>;
 pub type Port = object::Port<()>;
 pub type Link = object::Link<()>;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct Graph {
     pub clients: HashMap<u32, Client>,
     pub devices: HashMap<u32, Device>,
