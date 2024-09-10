@@ -72,13 +72,13 @@ impl FactoryComponent for Node {
 
                     #[name(icon_view)]
                     gtk::Image {
-                        set_margin_end: 6,
+                        set_margin_end: 4,
                         // Some icon themes use symbolic-only icons below a certain size.
                         // Unfortunately, because Gtk thinks they aren't symbolic, it doesn't
                         // properly recolor them, so here we let the Gtk theme set the icon size,
                         // while ensuring that the icons don't get too small.
                         #[watch]
-                        set_pixel_size: icon_view.pixel_size().max(20),
+                        set_pixel_size: icon_view.pixel_size().max(24),
                         #[watch]
                         set_icon_name: Some(self.node.identifier.icon_name()),
                     },
