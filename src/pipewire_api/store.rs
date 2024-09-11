@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use log::debug;
+use log::{debug, error};
 use std::{collections::HashMap, fmt::Debug};
 
 use pipewire::{
@@ -16,7 +16,7 @@ use pipewire::{
 use super::{
     actions::NodeAction,
     object::{Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind},
-    pod::NodeProps,
+    pod::{DeviceActiveRoute, NodeProps},
     Graph,
 };
 
@@ -229,7 +229,7 @@ impl Store {
         Ok(())
     }
 
-    pub(super) fn change_node(&mut self, _type_: ParamType, id: u32, pod: Option<&Pod>) {
+    pub(super) fn update_node_param(&mut self, _type_: ParamType, id: u32, pod: Option<&Pod>) {
         // abort if no pod is available
         let pod = match pod {
             Some(p) => p,
@@ -273,16 +273,53 @@ impl Store {
 
         debug!("got action node {id} to {:?}", action);
 
-        let action_param_bytes = action.apply(node)?;
-        let action_param_pod =
-            Pod::from_bytes(action_param_bytes.as_slice()).expect("apply returned invalid pod");
+        if let EndpointId::Device(device_id) = node.endpoint {
+            let device = self
+                .devices
+                .get(&device_id)
+                .ok_or_else(|| anyhow!("Device {device_id} not found"))?;
+            // let route = device.active_routes.iter().find(|route| route.)
+        } else {
+            let action_param_bytes = action.apply(node)?;
+            let action_param_pod =
+                Pod::from_bytes(action_param_bytes.as_slice()).expect("apply returned invalid pod");
 
-        // send parameter to pipewire
-        node.proxy.set_param(ParamType::Props, 0, action_param_pod);
-
+            // send parameter to pipewire
+            node.proxy.set_param(ParamType::Props, 0, action_param_pod);
+        }
         node.proxy.enum_params(7, Some(ParamType::Props), 0, 1);
-
         Ok(())
+    }
+
+    pub(super) fn update_device_param(
+        &mut self,
+        _type_: ParamType,
+        id: u32,
+        index: u32,
+        pod: Option<&Pod>,
+    ) {
+        let device = self
+            .devices
+            .get_mut(&id)
+            .expect("The device was destroyed unexpectedly");
+
+        // If index is 0, clear as we assume more routes will be coming later if there are more
+        if index == 0 {
+            device.active_routes.clear();
+        }
+
+        // abort if no pod is available
+        let pod = match pod {
+            Some(p) => p,
+            None => return,
+        };
+
+        // Deserialize the pod
+        if let Some(route) = DeviceActiveRoute::from_value(pod) {
+            device.active_routes.push(route);
+        } else {
+            error!("Failed to find needed fields on device {id}'s active route param.");
+        }
     }
 
     #[rustfmt::skip] // Rustfmt puts each call on its own line which is really hard to read

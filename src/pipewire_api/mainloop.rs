@@ -10,8 +10,14 @@ use anyhow::{Context, Result};
 
 use log::{debug, error};
 use pipewire::{
-    context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop,
-    properties::properties, registry::Registry, spa::param::ParamType, types::ObjectType,
+    context::Context as PwContext,
+    core::Core,
+    keys::*,
+    main_loop::MainLoop,
+    properties::properties,
+    registry::Registry,
+    spa::{param::ParamType, pod::deserialize::PodDeserializer},
+    types::ObjectType,
 };
 
 use crate::pipewire_api::actions::NodeAction;
@@ -78,7 +84,10 @@ impl Master {
                             // Add param listeners for objects
                             match global.type_ {
                                 ObjectType::Node => {
-                                    node_listener(store.clone(), sender.clone(), global.id)
+                                    init_node_listeners(store.clone(), sender.clone(), global.id);
+                                }
+                                ObjectType::Device => {
+                                    init_device_listeners(store.clone(), sender.clone(), global.id);
                                 }
                                 _ => {}
                             }
@@ -109,7 +118,7 @@ impl Master {
     }
 }
 
-pub fn node_listener(
+pub fn init_node_listeners(
     store: Rc<RefCell<Store>>,
     sender: pipewire::channel::Sender<ToPipewireMessage>,
     id: u32,
@@ -129,7 +138,7 @@ pub fn node_listener(
                 .param({
                     move |_, type_, _, _, pod| {
                         let mut store_borrow = store.borrow_mut();
-                        store_borrow.change_node(type_, id, pod);
+                        store_borrow.update_node_param(type_, id, pod);
                         sender.send(ToPipewireMessage::Update);
                     }
                 })
@@ -138,6 +147,33 @@ pub fn node_listener(
         node.proxy
             .enum_params(0, Some(ParamType::Props), 0, u32::MAX);
         node.proxy.subscribe_params(&[ParamType::Props]);
+    }
+}
+
+pub fn init_device_listeners(
+    store: Rc<RefCell<Store>>,
+    sender: pipewire::channel::Sender<ToPipewireMessage>,
+    id: u32,
+) {
+    if let Some(device) = store.clone().borrow_mut().devices.get_mut(&id) {
+        device.listener = Some(
+            device
+                .proxy
+                .add_listener_local()
+                // .info(...)
+                .param({
+                    move |_seq, type_, index, _next, pod| {
+                        store
+                            .borrow_mut()
+                            .update_device_param(type_, id, index, pod);
+                    }
+                })
+                .register(),
+        );
+        device
+            .proxy
+            .enum_params(0, Some(ParamType::Route), 0, u32::MAX);
+        device.proxy.subscribe_params(&[ParamType::Route]);
     }
 }
 

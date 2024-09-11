@@ -21,7 +21,7 @@ use pipewire::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::{identifier::Identifier, SONUSMIX_APP_NAME};
+use super::{identifier::Identifier, pod::DeviceActiveRoute, SONUSMIX_APP_NAME};
 
 #[derive(Error, Debug)]
 pub enum ObjectConvertError {
@@ -176,18 +176,16 @@ impl Client<pipewire::client::Client> {
     }
 }
 
-#[derive(Derivative, Clone, Serialize, Deserialize)]
+#[derive(Derivative, Clone)]
 #[derivative(Debug)]
-#[serde(rename_all = "camelCase")]
 pub struct Device<P = pipewire::device::Device, L = Option<pipewire::device::DeviceListener>> {
     pub id: u32,
     pub name: String,
     pub client: u32,
     pub nodes: Vec<u32>,
-    #[serde(skip)]
+    pub active_routes: Vec<DeviceActiveRoute>,
     pub(super) proxy: P,
     #[derivative(Debug = "ignore")]
-    #[serde(skip)]
     pub(super) listener: L,
 }
 
@@ -211,6 +209,7 @@ impl Device {
                 .to_owned(),
             client: object.parse_fields([*CLIENT_ID], "integer")?,
             nodes: Vec::new(),
+            active_routes: Vec::new(),
             proxy,
             listener: None,
         })
@@ -222,6 +221,7 @@ impl Device {
             name: self.name.clone(),
             client: self.client,
             nodes: self.nodes.clone(),
+            active_routes: self.active_routes.clone(),
             proxy: (),
             listener: (),
         }
