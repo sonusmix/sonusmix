@@ -3,8 +3,9 @@ use relm4::prelude::*;
 use relm4::{factory::FactoryVecDeque, gtk::prelude::*};
 
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 
+use crate::pipewire_api::ToPipewireMessage;
 use crate::{
     pipewire_api::{Graph, Node, PortKind},
     state::{subscribe_to_pipewire, SonusmixState, SONUSMIX_STATE},
@@ -12,6 +13,7 @@ use crate::{
 
 pub struct ConnectNodes {
     graph: Arc<Graph>,
+    pw_sender: mpsc::Sender<ToPipewireMessage>,
     base_node: (Node, PortKind),
     items: FactoryVecDeque<ConnectNodeItem>,
 }
@@ -20,11 +22,12 @@ pub struct ConnectNodes {
 pub enum ConnectNodesMsg {
     UpdateGraph(Arc<Graph>),
     SonusmixState(Arc<SonusmixState>),
+    ConnectionChanged(ConnectNodeItemOutput),
 }
 
 #[relm4::component(pub)]
 impl SimpleComponent for ConnectNodes {
-    type Init = (u32, PortKind);
+    type Init = (u32, PortKind, mpsc::Sender<ToPipewireMessage>);
     type Input = ConnectNodesMsg;
     type Output = Infallible;
 
@@ -50,7 +53,7 @@ impl SimpleComponent for ConnectNodes {
     }
 
     fn init(
-        (id, node_kind): (u32, PortKind),
+        (id, node_kind, pw_sender): (u32, PortKind, mpsc::Sender<ToPipewireMessage>),
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -69,10 +72,11 @@ impl SimpleComponent for ConnectNodes {
 
         let items = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
-            .forward(sender.input_sender(), |msg| match msg {});
+            .forward(sender.input_sender(), ConnectNodesMsg::ConnectionChanged);
 
         let mut model = Self {
             graph,
+            pw_sender,
             base_node,
             items,
         };
@@ -90,6 +94,39 @@ impl SimpleComponent for ConnectNodes {
                 self.graph = graph;
             }
             ConnectNodesMsg::SonusmixState(state) => self.update_items(state.as_ref()),
+            ConnectNodesMsg::ConnectionChanged(msg) => {
+                let msg = match self.base_node.1 {
+                    PortKind::Source => match msg {
+                        ConnectNodeItemOutput::ConnectNode(id) => {
+                            ToPipewireMessage::CreateNodeLinks {
+                                start_id: self.base_node.0.id,
+                                end_id: id,
+                            }
+                        }
+                        ConnectNodeItemOutput::DisconnectNode(id) => {
+                            ToPipewireMessage::RemoveNodeLinks {
+                                start_id: self.base_node.0.id,
+                                end_id: id,
+                            }
+                        }
+                    },
+                    PortKind::Sink => match msg {
+                        ConnectNodeItemOutput::ConnectNode(id) => {
+                            ToPipewireMessage::CreateNodeLinks {
+                                start_id: id,
+                                end_id: self.base_node.0.id,
+                            }
+                        }
+                        ConnectNodeItemOutput::DisconnectNode(id) => {
+                            ToPipewireMessage::RemoveNodeLinks {
+                                start_id: id,
+                                end_id: self.base_node.0.id,
+                            }
+                        }
+                    },
+                };
+                self.pw_sender.send(msg);
+            }
         }
     }
 }
@@ -122,7 +159,8 @@ struct ConnectNodeItem {
 
 #[derive(Debug)]
 enum ConnectNodeItemOutput {
-    // NodeChanged(u32, bool),
+    ConnectNode(u32),
+    DisconnectNode(u32),
 }
 
 #[relm4::factory]
@@ -142,13 +180,19 @@ impl FactoryComponent for ConnectNodeItem {
                 #[watch]
                 set_label: Some(&self.node.identifier.human_name()),
                 #[watch]
+                #[block_signal(node_toggled_handler)]
                 set_active: self.connected.unwrap_or(false),
                 #[watch]
+                #[block_signal(node_toggled_handler)]
                 set_inconsistent: self.connected.is_none(),
 
                 connect_toggled[sender, id = self.node.id] => move |check| {
-                    // let _ = sender.output(ConnectNodeItemOutput::NodeChanged(id, check.is_active()));
-                }
+                    if check.is_active() {
+                        sender.output(ConnectNodeItemOutput::ConnectNode(id));
+                    } else {
+                        sender.output(ConnectNodeItemOutput::DisconnectNode(id));
+                    }
+                } @node_toggled_handler
             }
         }
     }

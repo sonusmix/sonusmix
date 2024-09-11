@@ -312,6 +312,7 @@ impl Node {
 pub struct Port<P = pipewire::port::Port> {
     pub id: u32,
     pub name: String,
+    pub channel: String,
     pub node: u32,
     pub kind: PortKind,
     pub links: Vec<u32>,
@@ -334,6 +335,10 @@ impl Port {
                 .get(*PORT_NAME)
                 .ok_or_else(|| object.missing_field(*PORT_NAME))?
                 .to_owned(),
+            channel: props
+                .get(*AUDIO_CHANNEL)
+                .ok_or_else(|| object.missing_field(*AUDIO_CHANNEL))?
+                .to_owned(),
             node: object.parse_fields([*NODE_ID], "integer")?,
             kind: object.parse_fields([*PORT_DIRECTION], "'in' or 'out'")?,
             links: Vec::new(),
@@ -345,6 +350,7 @@ impl Port {
         Port {
             id: self.id,
             name: self.name.clone(),
+            channel: self.channel.clone(),
             node: self.node,
             kind: self.kind,
             links: self.links.clone(),

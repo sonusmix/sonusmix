@@ -7,7 +7,7 @@ use pipewire::{
     registry::{GlobalObject, Registry},
     spa::{
         param::ParamType,
-        pod::{deserialize::PodDeserializer, Pod, Value},
+        pod::{deserialize::PodDeserializer, Pod},
         utils::dict::DictRef,
     },
     types::ObjectType,
@@ -15,10 +15,10 @@ use pipewire::{
 
 use super::{
     object::{
-        Client, Device, EndpointId, EndpointKind, Link, Node, ObjectConvertError, Port, PortKind,
+        Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind,
     },
     pod::{
-        build_node_mute_pod, build_node_volume_pod, parse::PodBytes, DeviceActiveRoute, NodeProps,
+        build_node_mute_pod, build_node_volume_pod, DeviceActiveRoute, NodeProps,
     },
     Graph,
 };

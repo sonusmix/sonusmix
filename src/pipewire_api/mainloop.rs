@@ -6,23 +6,25 @@ use std::{
     thread::JoinHandle,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 use log::{debug, error};
 use pipewire::{
     context::Context as PwContext,
     core::Core,
     keys::*,
+    link::Link,
     main_loop::MainLoop,
     properties::properties,
     registry::Registry,
     spa::{param::ParamType, pod::deserialize::PodDeserializer},
     types::ObjectType,
 };
+use relm4::gtk::glib::property::PropertyGet;
 
 use crate::pipewire_api::object::Node;
 
-use super::{store::Store, FromPipewireMessage, Graph, ToPipewireMessage};
+use super::{object::Port, store::Store, FromPipewireMessage, Graph, PortKind, ToPipewireMessage};
 
 /// # Master
 ///
@@ -53,7 +55,7 @@ impl Master {
 
     /// Listen for info events on the core.
     /// see [Core::add_listener_local()]
-    fn info_listener(&mut self) -> pipewire::core::Listener {
+    fn init_core_listeners(&mut self) -> pipewire::core::Listener {
         self.pw_core
             .add_listener_local()
             .info({
@@ -62,6 +64,12 @@ impl Master {
                 move |info| {
                     // debug!("info event: {info:?}");
                 }
+            })
+            .done(|id, seq| {
+                debug!("Pipewire done event: {id}, {seq:?}");
+            })
+            .error(|id, seq, res, msg| {
+                error!("Pipewire error event ({id}, {seq}, {res}): {msg:?}");
             })
             .register()
     }
@@ -115,6 +123,114 @@ impl Master {
                 }
             })
             .register()
+    }
+
+    /// Create a link between two ports. Checks that the ports exist, and their direction. Does
+    /// nothing if a link between those two ports already exists.
+    fn create_port_link(&self, start_id: u32, end_id: u32) -> Result<()> {
+        let store = self.store.borrow();
+        let Some(start_port) = store.ports.get(&start_id) else {
+            return Err(anyhow!(
+                "start_id {start_id} did not exist or was not a port"
+            ));
+        };
+        if start_port.kind != PortKind::Source {
+            return Err(anyhow!("Port {start_id} was not a source port"));
+        }
+        let Some(end_port) = store.ports.get(&end_id) else {
+            return Err(anyhow!("end_id {end_id} did not exist or was not a port"));
+        };
+        if end_port.kind != PortKind::Sink {
+            return Err(anyhow!("Port {end_id} was not a sink port"));
+        }
+        if start_port.links.iter().any(|link_id| {
+            store
+                .links
+                .get(link_id)
+                .map(|link| link.start_port == start_port.id && link.end_port == end_port.id)
+                .unwrap_or(false)
+        }) {
+            // The link already exists
+            return Ok(());
+        }
+        self.pw_core
+            .create_object::<pipewire::link::Link>(
+                "link-factory",
+                &properties! {
+                    *LINK_OUTPUT_NODE => start_port.node.to_string(),
+                    *LINK_OUTPUT_PORT => start_port.id.to_string(),
+                    *LINK_INPUT_NODE => end_port.node.to_string(),
+                    *LINK_INPUT_PORT => end_port.id.to_string(),
+                    *OBJECT_LINGER => "true",
+                    *NODE_PASSIVE => "true",
+                },
+            )
+            .context("Failed to create link")?;
+        Ok(())
+    }
+
+    /// Create links between all matching ports of two nodes. Checks that both ids are nodes, and
+    /// skips links that do not already exist. Only connects nodes in the specified direction.
+    fn create_node_links(&self, start_id: u32, end_id: u32) -> Result<()> {
+        let store = self.store.borrow();
+        let Some(start_node) = store.nodes.get(&start_id) else {
+            return Err(anyhow!(
+                "start_id {start_id} did not exist or was not a node"
+            ));
+        };
+        let Some(end_node) = store.nodes.get(&end_id) else {
+            return Err(anyhow!("end_id {end_id} did not exist or was not a node"));
+        };
+        let end_ports: Vec<&Port> = end_node
+            .ports
+            .iter()
+            .filter_map(|port_id| {
+                store
+                    .ports
+                    .get(&port_id)
+                    .filter(|port| port.kind == PortKind::Sink)
+            })
+            .collect();
+        let port_pairs: Vec<(&Port, &Port)> = start_node
+            .ports
+            .iter()
+            .filter_map(|port_id| {
+                let start_port = store
+                    .ports
+                    .get(port_id)
+                    .filter(|port| port.kind == PortKind::Source)?;
+                let end_port = end_ports
+                    .iter()
+                    .find(|port| port.channel == start_port.channel)?;
+                Some((start_port, *end_port))
+            })
+            .collect();
+        for (start_port, end_port) in port_pairs {
+            self.create_port_link(start_port.id, end_port.id)?;
+        }
+        Ok(())
+    }
+
+    fn remove_port_link(&self, start_id: u32, end_id: u32) -> Result<()> {
+        let store = self.store.borrow_mut();
+        // There shouldn't be more than one link between the same two ports, but loop just in case
+        // there is for some reason.
+        for link_id in store.links.values().filter_map(|link| {
+            (link.start_port == start_id && link.end_port == end_id).then_some(link.id)
+        }) {
+            self.registry.destroy_global(link_id);
+        }
+        Ok(())
+    }
+
+    fn remove_node_links(&self, start_id: u32, end_id: u32) -> Result<()> {
+        let store = self.store.borrow_mut();
+        for link_id in store.links.values().filter_map(|link| {
+            (link.start_node == start_id && link.end_node == end_id).then_some(link.id)
+        }) {
+            self.registry.destroy_global(link_id);
+        }
+        Ok(())
     }
 }
 
@@ -229,7 +345,7 @@ pub(super) fn init_mainloop(
 
         let _listener = master.registry_listener();
         let _remove_listener = master.registry_remove_listener();
-        let _info_listener = master.info_listener();
+        let _core_listeners = master.init_core_listeners();
 
         let _receiver = receiver.attach(mainloop.loop_(), {
             let mainloop = mainloop.clone();
@@ -245,6 +361,26 @@ pub(super) fn init_mainloop(
                     if let Err(err) = store.borrow_mut().set_node_mute(id, mute) {
                         error!("Error setting mute: {err:?}");
                     }
+                }
+                ToPipewireMessage::CreatePortLink { start_id, end_id } => {
+                    if let Err(err) = master.create_port_link(start_id, end_id) {
+                        error!("Error creating port link: {err:?}");
+                    };
+                }
+                ToPipewireMessage::CreateNodeLinks { start_id, end_id } => {
+                    if let Err(err) = master.create_node_links(start_id, end_id) {
+                        error!("Error creating node links: {err:?}");
+                    };
+                }
+                ToPipewireMessage::RemovePortLink { start_id, end_id } => {
+                    if let Err(err) = master.remove_port_link(start_id, end_id) {
+                        error!("Error removing port link: {err:?}");
+                    };
+                }
+                ToPipewireMessage::RemoveNodeLinks { start_id, end_id } => {
+                    if let Err(err) = master.remove_node_links(start_id, end_id) {
+                        error!("Error removing node links: {err:?}");
+                    };
                 }
                 ToPipewireMessage::Exit => mainloop.quit(),
             }

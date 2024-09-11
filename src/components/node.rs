@@ -183,7 +183,7 @@ impl FactoryComponent for Node {
         let is_muted = node.mute;
 
         let connect_nodes = ConnectNodes::builder()
-            .launch((node.id, list))
+            .launch((node.id, list, pw_sender.clone()))
             .forward(sender.input_sender(), |msg| match msg {});
         Self {
             node,

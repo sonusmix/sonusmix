@@ -77,6 +77,22 @@ pub enum ToPipewireMessage {
     Update,
     NodeVolume(u32, Vec<f32>),
     NodeMute(u32, bool),
+    CreatePortLink {
+        start_id: u32,
+        end_id: u32,
+    },
+    CreateNodeLinks {
+        start_id: u32,
+        end_id: u32,
+    },
+    RemovePortLink {
+        start_id: u32,
+        end_id: u32,
+    },
+    RemoveNodeLinks {
+        start_id: u32,
+        end_id: u32,
+    },
     Exit,
 }
 
