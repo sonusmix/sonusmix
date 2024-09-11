@@ -1,6 +1,6 @@
 mod components;
-mod state;
 mod pipewire_api;
+mod state;
 
 use components::app::App;
 use log::debug;

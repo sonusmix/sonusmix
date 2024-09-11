@@ -111,10 +111,12 @@ impl FactoryComponent for Node {
                     set_tooltip?: self.node.identifier.details(),
                 },
                 gtk::Scale {
-                    set_range: (0.0, 1.0),
+                    set_range: (0.0, 100.0),
                     #[watch]
                     #[block_signal(volume_handler)]
                     set_value: calculate_slider_value(&self.node.channel_volumes),
+                    set_draw_value: true,
+                    set_format_value_func => move |_, value| format!("{value:.0}%"),
 
                     connect_value_changed[sender] => move |scale| {
                         sender.input(NodeMsg::Volume(scale.value()));
@@ -208,23 +210,9 @@ impl FactoryComponent for Node {
                 }
             }
             NodeMsg::Volume(volume) => {
-                let volume = volume.powf(3.0) as f32;
-                let volume_channels_count = self.node.channel_volumes.len();
-
-                if volume_channels_count == 0 {
-                    log::warn!("Cannot set volume for node without channels");
-                    return
-                }
-
-                let mut new_channels = Vec::with_capacity(volume_channels_count);
-
-                for _ in 0..volume_channels_count {
-                    new_channels.push(volume);
-                }
-
                 self.pw_sender.send(ToPipewireMessage::NodeVolume(
                     self.node.id,
-                    new_channels
+                    slider_to_channel_volumes(volume, self.node.channel_volumes.len()),
                 ));
             }
             NodeMsg::Remove => {
@@ -237,4 +225,10 @@ impl FactoryComponent for Node {
 fn calculate_slider_value(channel_volumes: &Vec<f32>) -> f64 {
     ((channel_volumes.iter().sum::<f32>() / channel_volumes.len().max(1) as f32) as f64)
         .powf(1.0 / 3.0)
+        * 100.0
+}
+
+fn slider_to_channel_volumes(volume: f64, num_channels: usize) -> Vec<f32> {
+    let volume_value = (volume / 100.0).powf(3.0) as f32;
+    vec![volume_value; num_channels]
 }

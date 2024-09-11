@@ -1,8 +1,8 @@
+mod identifier;
 mod mainloop;
 mod object;
 mod pod;
 mod store;
-mod identifier;
 
 use std::{collections::HashMap, sync::mpsc, thread};
 

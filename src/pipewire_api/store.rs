@@ -14,8 +14,10 @@ use pipewire::{
 };
 
 use super::{
-    object::{Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind},
-    pod::{parse::PodBytes, DeviceActiveRoute, NodeProps},
+    object::{
+        Client, Device, EndpointId, EndpointKind, Link, Node, ObjectConvertError, Port, PortKind,
+    },
+    pod::{build_node_volume_pod, parse::PodBytes, DeviceActiveRoute, NodeProps},
     Graph,
 };
 
@@ -69,7 +71,7 @@ impl Store {
         } else if let Some(node) = self.nodes.remove(&id) {
             // If the endpoint the node belongs to exists, remove the node from it
             match node.endpoint {
-                EndpointId::Device(id) => {
+                EndpointId::Device { id, .. } => {
                     if let Some(device) = self.devices.get_mut(&id) {
                         device.nodes.retain(|id| *id != node.id);
                     }
@@ -135,7 +137,10 @@ impl Store {
         device.nodes = self
             .nodes
             .values()
-            .filter_map(|node| (node.endpoint == EndpointId::Device(device.id)).then_some(node.id))
+            .filter_map(|node| {
+                matches!(node.endpoint, EndpointId::Device { id, .. } if id == device.id)
+                    .then_some(node.id)
+            })
             .collect();
 
         // Add the device
@@ -160,7 +165,7 @@ impl Store {
 
         // If the endpoint the node belongs to exists, add the node to it
         match node.endpoint {
-            EndpointId::Device(id) => {
+            EndpointId::Device { id, .. } => {
                 if let Some(device) = self.devices.get_mut(&id) {
                     device.nodes.push(node.id);
                 }
@@ -260,31 +265,47 @@ impl Store {
             .nodes
             .get_mut(&node_info.id())
             .expect("The node was destroyed unexpectedly");
+        if let EndpointId::Device { device_index, .. } = &mut node.endpoint {
+            if let Some(idx) = props
+                .get("card.profile.device")
+                .and_then(|idx| idx.parse().ok())
+            {
+                *device_index = Some(idx);
+            }
+        }
         node.identifier.update_from_props(props);
     }
 
     /// Send an action to a pipewire node.
-    pub(super) fn send_node_value(&mut self, id: u32, value: &Value) -> Result<()> {
+    pub(super) fn set_node_volume(&mut self, id: u32, channel_volumes: Vec<f32>) -> Result<()> {
         let node = self
             .nodes
             .get(&id)
             .ok_or_else(|| anyhow!("Node {id} not found"))?;
 
-        // TODO: Properly implement this
-        if let EndpointId::Device(device_id) = node.endpoint {
+        if let EndpointId::Device {
+            id: device_id,
+            device_index,
+        } = node.endpoint
+        {
+            let device_index = device_index
+                .ok_or_else(|| anyhow!("Node {id} is connected to a device but does not have an associated device index"))?;
             let device = self
                 .devices
                 .get(&device_id)
                 .ok_or_else(|| anyhow!("Device {device_id} not found"))?;
-            // let route = device.active_routes.iter().find(|route| route.)
+            let route = device
+                .active_routes
+                .iter()
+                .find(|route| route.device_index == device_index)
+                .ok_or_else(|| anyhow!("No active route found on device {device_id} with device index {device_index}"))?;
+            let (param_type, pod) = route.build_device_volume_pod(channel_volumes);
+            device.proxy.set_param(param_type, 0, pod.pod());
+        } else {
+            let (param_type, pod) = build_node_volume_pod(channel_volumes);
+            node.proxy.set_param(param_type, 0, pod.pod());
+            node.proxy.enum_params(7, Some(ParamType::Props), 0, 1);
         }
-
-        let bytes = PodBytes::from_value(value);
-        // send parameter to pipewire
-        node.proxy.set_param(ParamType::Props, 0, bytes.pod());
-        
-
-        node.proxy.enum_params(7, Some(ParamType::Props), 0, 1);
         Ok(())
     }
 

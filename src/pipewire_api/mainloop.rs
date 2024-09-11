@@ -237,10 +237,9 @@ pub(super) fn init_mainloop(
             move |message| match message {
                 ToPipewireMessage::Update => update_fn(store.borrow().dump_graph()),
                 ToPipewireMessage::NodeVolume(id, volume) => {
-                    let value = Node::volume_channels_value(volume);
-                    store
-                        .borrow_mut()
-                        .send_node_value(id, &value);
+                    if let Err(err) = store.borrow_mut().set_node_volume(id, volume) {
+                        error!("Error setting volume: {err:?}");
+                    }
                 }
                 ToPipewireMessage::Exit => mainloop.quit(),
             }

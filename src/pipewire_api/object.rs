@@ -246,7 +246,7 @@ pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListene
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")] // Defaults to externally tagged
 pub enum EndpointId {
-    Device(u32),
+    Device { id: u32, device_index: Option<i32> },
     Client(u32),
 }
 
@@ -263,9 +263,19 @@ impl Node {
             id: object.id,
             identifier: Identifier::from_props(props),
             endpoint: if let Some(id) = props.get(*DEVICE_ID) {
-                id.parse()
-                    .map(EndpointId::Device)
-                    .map_err(|_| object.invalid_value(*DEVICE_ID, "integer", id))?
+                EndpointId::Device {
+                    id: id
+                        .parse()
+                        .map_err(|_| object.invalid_value(*DEVICE_ID, "integer", id))?,
+                    device_index: props
+                        .get("card.profile.device")
+                        .map(|device_index| {
+                            device_index
+                                .parse()
+                                .map_err(|_| object.invalid_value(*DEVICE_ID, "integer", id))
+                        })
+                        .transpose()?,
+                }
             } else if let Some(id) = props.get(*CLIENT_ID) {
                 id.parse()
                     .map(EndpointId::Client)
@@ -291,15 +301,6 @@ impl Node {
             proxy: (),
             listener: (),
         }
-    }
-
-    /// `Props '{ channelVolumes: <volume> }'`
-    pub(super) fn volume_channels_value(volume: Vec<f32>) -> Value {
-        Value::Object(object! {
-            SpaTypes::ObjectParamProps,
-            ParamType::Props,
-            Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(volume))),
-        })
     }
 }
 

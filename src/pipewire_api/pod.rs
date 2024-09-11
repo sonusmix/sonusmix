@@ -4,7 +4,7 @@ use pipewire::{
         pod::{object, Object, Pod, Property, Value, ValueArray},
         sys::{
             SPA_PARAM_ROUTE_device, SPA_PARAM_ROUTE_index, SPA_PARAM_ROUTE_info,
-            SPA_PARAM_ROUTE_props, SPA_PROP_channelVolumes,
+            SPA_PARAM_ROUTE_props, SPA_PARAM_ROUTE_save, SPA_PROP_channelVolumes,
         },
         utils::SpaTypes,
     },
@@ -34,7 +34,8 @@ pub mod parse {
 
     /// A [`Pod`] is like a [`str`]: it represents a sequence of bytes that are known to be in a
     /// certain format, but may only exist behind a reference. Therefore, a function cannot return
-    /// a [`Pod`] directly. Instead, this type owns those bytes until the [`Pod`] is needed.
+    /// a [`Pod`] directly. Instead, this type owns those bytes until the [`Pod`] is needed,
+    /// similar to what a [`String`] does for a [`&str`].
     pub struct PodBytes(Box<[u8]>);
 
     impl PodBytes {
@@ -114,7 +115,8 @@ pub mod parse {
             let mut iter = self.iter();
             // Consume items of the iterator up to and including the key
             iter.by_ref()
-                .take_while(|val| val.parse_string().map(|s| s == key).unwrap_or_default());
+                .take_while(|val| val.parse_string().map(|s| s == key).unwrap_or_default())
+                .count();
             // Return the item after the key
             iter.next()
         }
@@ -163,6 +165,16 @@ impl NodeProps {
     }
 }
 
+/// `Props '{ channelVolumes: <channel_volumes> }'`
+pub fn build_node_volume_pod(channel_volumes: Vec<f32>) -> (ParamType, PodBytes) {
+    let pod = Value::Object(object! {
+        SpaTypes::ObjectParamProps,
+        ParamType::Props,
+        Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(channel_volumes))),
+    }).serialize();
+    (ParamType::Props, pod)
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct DeviceActiveRoute {
     pub route_index: i32,
@@ -186,8 +198,9 @@ impl DeviceActiveRoute {
         })
     }
 
-    pub fn build_volume_pod(&self, channel_volumes: &[f32]) -> PodBytes {
-        Value::Object(object! {
+    /// `Route '{ index: <route_index>, device: <device_index>, props: { channelVolumes: <channel_volumes> }, save: true }'
+    pub fn build_device_volume_pod(&self, channel_volumes: Vec<f32>) -> (ParamType, PodBytes) {
+        let pod = Value::Object(object! {
             SpaTypes::ObjectParamRoute,
             ParamType::Route,
             Property::new(SPA_PARAM_ROUTE_index, Value::Int(self.route_index)),
@@ -195,8 +208,10 @@ impl DeviceActiveRoute {
             Property::new(SPA_PARAM_ROUTE_props, Value::Object(object! {
                 SpaTypes::ObjectParamProps,
                 ParamType::Route,
-                Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(channel_volumes.to_owned())))
-            }))
-        }).serialize()
+                Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(channel_volumes)))
+            })),
+            Property::new(SPA_PARAM_ROUTE_save, Value::Bool(true)),
+        }).serialize();
+        (ParamType::Route, pod)
     }
 }
