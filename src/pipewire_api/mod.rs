@@ -76,6 +76,7 @@ pub struct Graph {
 pub enum ToPipewireMessage {
     Update,
     NodeVolume(u32, Vec<f32>),
+    NodeMute(u32, bool),
     Exit,
 }
 

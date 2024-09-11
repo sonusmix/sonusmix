@@ -33,6 +33,7 @@ pub enum NodeMsg {
     UpdateGraph(Arc<Graph>),
     #[doc(hidden)]
     Volume(f64),
+    ToggleMute,
     #[doc(hidden)]
     Remove,
 }
@@ -126,9 +127,11 @@ impl FactoryComponent for Node {
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 5,
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 5,
 
                     gtk::MenuButton {
                         set_label: "Connections",
@@ -140,8 +143,22 @@ impl FactoryComponent for Node {
                         set_menu_model: Some(&node_menu),
                     },
                 },
-                gtk::Label {
-                    set_label: "THIS IS WHERE SOME\nMORE STUFF WILL GO",
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 5,
+
+                    gtk::Button {
+                        set_label: "M",
+                        #[watch]
+                        set_tooltip: self.node.mute.then_some("Unmute").unwrap_or("Mute"),
+                        #[watch]
+                        set_css_classes: self.node.mute.then_some(&["mute-node-button-active", "text-button"]).unwrap_or(&["", "text-button"]),
+                        connect_clicked => NodeMsg::ToggleMute,
+                    },
+                    gtk::Button {
+                        set_label: "P",
+                        set_tooltip: "Primary",
+                    }
                 }
             }
         },
@@ -163,6 +180,7 @@ impl FactoryComponent for Node {
             .get(&id)
             .expect("node component failed to find matching node on init")
             .clone();
+        let is_muted = node.mute;
 
         let connect_nodes = ConnectNodes::builder()
             .launch((node.id, list))
@@ -214,6 +232,14 @@ impl FactoryComponent for Node {
                     self.node.id,
                     slider_to_channel_volumes(volume, self.node.channel_volumes.len()),
                 ));
+            }
+            NodeMsg::ToggleMute => {
+                let mute = match self.node.mute {
+                    true => false,
+                    false => true,
+                };
+                self.pw_sender
+                    .send(ToPipewireMessage::NodeMute(self.node.id, mute));
             }
             NodeMsg::Remove => {
                 SONUSMIX_STATE.emit(SonusmixMsg::RemoveNode(self.node.id, self.list));

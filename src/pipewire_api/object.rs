@@ -237,6 +237,7 @@ pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListene
     pub ports: Vec<u32>,
     // #[serde(skip)]
     pub channel_volumes: Vec<f32>,
+    pub mute: bool,
     pub(super) proxy: P,
     // listener is set by mainloop
     #[derivative(Debug = "ignore")]
@@ -286,6 +287,7 @@ impl Node {
             },
             ports: Vec::new(),
             channel_volumes: Vec::new(),
+            mute: false,
             proxy,
             listener: None,
         })
@@ -298,6 +300,7 @@ impl Node {
             endpoint: self.endpoint,
             ports: self.ports.clone(),
             channel_volumes: self.channel_volumes.clone(),
+            mute: self.mute,
             proxy: (),
             listener: (),
         }

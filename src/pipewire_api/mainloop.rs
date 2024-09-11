@@ -241,6 +241,11 @@ pub(super) fn init_mainloop(
                         error!("Error setting volume: {err:?}");
                     }
                 }
+                ToPipewireMessage::NodeMute(id, mute) => {
+                    if let Err(err) = store.borrow_mut().set_node_mute(id, mute) {
+                        error!("Error setting mute: {err:?}");
+                    }
+                }
                 ToPipewireMessage::Exit => mainloop.quit(),
             }
         });

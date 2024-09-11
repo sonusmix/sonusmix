@@ -4,7 +4,7 @@ use pipewire::{
         pod::{object, Object, Pod, Property, Value, ValueArray},
         sys::{
             SPA_PARAM_ROUTE_device, SPA_PARAM_ROUTE_index, SPA_PARAM_ROUTE_info,
-            SPA_PARAM_ROUTE_props, SPA_PARAM_ROUTE_save, SPA_PROP_channelVolumes,
+            SPA_PARAM_ROUTE_props, SPA_PARAM_ROUTE_save, SPA_PROP_channelVolumes, SPA_PROP_mute,
         },
         utils::SpaTypes,
     },
@@ -57,6 +57,7 @@ pub mod parse {
         fn parse_value_array(&self) -> Option<&ValueArray>;
         fn parse_struct(&self) -> Option<&[Value]>;
         fn parse_object(&self) -> Option<&Object>;
+        fn parse_bool(&self) -> Option<bool>;
         fn serialize(&self) -> PodBytes;
     }
     impl PodValueExt for Value {
@@ -87,6 +88,12 @@ pub mod parse {
         fn parse_object(&self) -> Option<&Object> {
             match self {
                 Value::Object(object) => Some(object),
+                _ => None,
+            }
+        }
+        fn parse_bool(&self) -> Option<bool> {
+            match self {
+                Value::Bool(bool_) => Some(*bool_),
                 _ => None,
             }
         }
@@ -163,6 +170,13 @@ impl NodeProps {
             .parse_value_array()?
             .parse_floats()
     }
+
+    pub fn get_mute(&self) -> Option<bool> {
+        self.value
+            .parse_object()?
+            .get_key(SPA_PROP_mute)?
+            .parse_bool()
+    }
 }
 
 /// `Props '{ channelVolumes: <channel_volumes> }'`
@@ -172,6 +186,17 @@ pub fn build_node_volume_pod(channel_volumes: Vec<f32>) -> (ParamType, PodBytes)
         ParamType::Props,
         Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(channel_volumes))),
     }).serialize();
+    (ParamType::Props, pod)
+}
+
+/// `Props '{ mute: <mute> }'`
+pub fn build_node_mute_pod(mute: bool) -> (ParamType, PodBytes) {
+    let pod = Value::Object(object! {
+        SpaTypes::ObjectParamProps,
+        ParamType::Props,
+        Property::new(SPA_PROP_mute, Value::Bool(mute)),
+    })
+    .serialize();
     (ParamType::Props, pod)
 }
 
@@ -212,6 +237,24 @@ impl DeviceActiveRoute {
             })),
             Property::new(SPA_PARAM_ROUTE_save, Value::Bool(true)),
         }).serialize();
+        (ParamType::Route, pod)
+    }
+
+    /// `Route '{ index: <route_index>, device: <device_index>, props: { mute: <mute> }, save: true }'
+    pub fn build_device_mute_pod(&self, mute: bool) -> (ParamType, PodBytes) {
+        let pod = Value::Object(object! {
+            SpaTypes::ObjectParamRoute,
+            ParamType::Route,
+            Property::new(SPA_PARAM_ROUTE_index, Value::Int(self.route_index)),
+            Property::new(SPA_PARAM_ROUTE_device, Value::Int(self.device_index)),
+            Property::new(SPA_PARAM_ROUTE_props, Value::Object(object! {
+                SpaTypes::ObjectParamProps,
+                ParamType::Route,
+                Property::new(SPA_PROP_mute, Value::Bool(mute))
+            })),
+            Property::new(SPA_PARAM_ROUTE_save, Value::Bool(true)),
+        })
+        .serialize();
         (ParamType::Route, pod)
     }
 }

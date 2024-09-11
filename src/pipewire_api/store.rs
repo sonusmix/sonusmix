@@ -17,7 +17,9 @@ use super::{
     object::{
         Client, Device, EndpointId, EndpointKind, Link, Node, ObjectConvertError, Port, PortKind,
     },
-    pod::{build_node_volume_pod, parse::PodBytes, DeviceActiveRoute, NodeProps},
+    pod::{
+        build_node_mute_pod, build_node_volume_pod, parse::PodBytes, DeviceActiveRoute, NodeProps,
+    },
     Graph,
 };
 
@@ -251,9 +253,11 @@ impl Store {
 
         let node_props = NodeProps::new(value);
 
-        // save volume if node has volume
         if let Some(volume) = node_props.get_channel_volumes() {
             node.channel_volumes = volume.to_vec();
+        }
+        if let Some(mute) = node_props.get_mute() {
+            node.mute = mute;
         }
     }
 
@@ -276,7 +280,6 @@ impl Store {
         node.identifier.update_from_props(props);
     }
 
-    /// Send an action to a pipewire node.
     pub(super) fn set_node_volume(&mut self, id: u32, channel_volumes: Vec<f32>) -> Result<()> {
         let node = self
             .nodes
@@ -305,6 +308,37 @@ impl Store {
             let (param_type, pod) = build_node_volume_pod(channel_volumes);
             node.proxy.set_param(param_type, 0, pod.pod());
             node.proxy.enum_params(7, Some(ParamType::Props), 0, 1);
+        }
+        Ok(())
+    }
+
+    pub(super) fn set_node_mute(&mut self, id: u32, mute: bool) -> Result<()> {
+        let node = self
+            .nodes
+            .get(&id)
+            .ok_or_else(|| anyhow!("Node {id} not found"))?;
+
+        if let EndpointId::Device {
+            id: device_id,
+            device_index,
+        } = node.endpoint
+        {
+            let device_index = device_index
+                .ok_or_else(|| anyhow!("Node {id} is connected to a device but does not have an associated device index"))?;
+            let device = self
+                .devices
+                .get(&device_id)
+                .ok_or_else(|| anyhow!("Device {device_id} not found"))?;
+            let route = device
+                .active_routes
+                .iter()
+                .find(|route| route.device_index == device_index)
+                .ok_or_else(|| anyhow!("No active route found on device {device_id} with device index {device_index}"))?;
+            let (param_type, pod) = route.build_device_mute_pod(mute);
+            device.proxy.set_param(param_type, 0, pod.pod());
+        } else {
+            let (param_type, pod) = build_node_mute_pod(mute);
+            node.proxy.set_param(param_type, 0, pod.pod());
         }
         Ok(())
     }

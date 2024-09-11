@@ -18,6 +18,8 @@ fn main() {
     let pipewire_handle = PipewireHandle::init(update_fn).expect("failed to connect to Pipewire");
 
     let app = RelmApp::new("sonusmix");
+    relm4::set_global_css(include_str!("components/app.css"));
+
     app.run::<App>(pipewire_handle.sender());
 
     // Comment the above lines and uncomment these to test without the frontend
