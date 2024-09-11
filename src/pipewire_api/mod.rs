@@ -76,6 +76,22 @@ pub struct Graph {
 pub enum ToPipewireMessage {
     Update,
     NodeVolume(u32, Vec<f32>),
+    CreatePortLink {
+        start_id: u32,
+        end_id: u32,
+    },
+    CreateNodeLinks {
+        start_id: u32,
+        end_id: u32,
+    },
+    RemovePortLink {
+        start_id: u32,
+        end_id: u32,
+    },
+    RemoveNodeLinks {
+        start_id: u32,
+        end_id: u32,
+    },
     Exit,
 }
 

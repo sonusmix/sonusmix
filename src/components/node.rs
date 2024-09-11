@@ -165,7 +165,7 @@ impl FactoryComponent for Node {
             .clone();
 
         let connect_nodes = ConnectNodes::builder()
-            .launch((node.id, list))
+            .launch((node.id, list, pw_sender.clone()))
             .forward(sender.input_sender(), |msg| match msg {});
         Self {
             node,
