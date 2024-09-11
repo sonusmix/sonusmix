@@ -293,6 +293,7 @@ impl Node {
         }
     }
 
+    /// `Props '{ channelVolumes: <volume> }'`
     pub(super) fn volume_channels_value(volume: Vec<f32>) -> Value {
         Value::Object(object! {
             SpaTypes::ObjectParamProps,

@@ -208,9 +208,23 @@ impl FactoryComponent for Node {
                 }
             }
             NodeMsg::Volume(volume) => {
-                self.pw_sender.send(ToPipewireMessage::ChangeVolume(
+                let volume = volume.powf(3.0) as f32;
+                let volume_channels_count = self.node.channel_volumes.len();
+
+                if volume_channels_count == 0 {
+                    log::warn!("Cannot set volume for node without channels");
+                    return
+                }
+
+                let mut new_channels = Vec::with_capacity(volume_channels_count);
+
+                for _ in 0..volume_channels_count {
+                    new_channels.push(volume);
+                }
+
+                self.pw_sender.send(ToPipewireMessage::NodeVolume(
                     self.node.id,
-                    volume.powf(3.0) as f32,
+                    new_channels
                 ));
             }
             NodeMsg::Remove => {

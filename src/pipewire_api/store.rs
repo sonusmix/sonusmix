@@ -7,16 +7,15 @@ use pipewire::{
     registry::{GlobalObject, Registry},
     spa::{
         param::ParamType,
-        pod::{deserialize::PodDeserializer, Pod},
+        pod::{deserialize::PodDeserializer, Pod, Value},
         utils::dict::DictRef,
     },
     types::ObjectType,
 };
 
 use super::{
-    actions::NodeAction,
     object::{Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind},
-    pod::{DeviceActiveRoute, NodeProps},
+    pod::{parse::PodBytes, DeviceActiveRoute, NodeProps},
     Graph,
 };
 
@@ -265,28 +264,26 @@ impl Store {
     }
 
     /// Send an action to a pipewire node.
-    pub(super) fn node_action(&mut self, id: u32, action: NodeAction) -> Result<()> {
+    pub(super) fn send_node_value(&mut self, id: u32, value: &Value) -> Result<()> {
         let node = self
             .nodes
             .get(&id)
             .ok_or_else(|| anyhow!("Node {id} not found"))?;
 
-        debug!("got action node {id} to {:?}", action);
-
+        // TODO: Properly implement this
         if let EndpointId::Device(device_id) = node.endpoint {
             let device = self
                 .devices
                 .get(&device_id)
                 .ok_or_else(|| anyhow!("Device {device_id} not found"))?;
             // let route = device.active_routes.iter().find(|route| route.)
-        } else {
-            let action_param_bytes = action.apply(node)?;
-            let action_param_pod =
-                Pod::from_bytes(action_param_bytes.as_slice()).expect("apply returned invalid pod");
-
-            // send parameter to pipewire
-            node.proxy.set_param(ParamType::Props, 0, action_param_pod);
         }
+
+        let bytes = PodBytes::from_value(value);
+        // send parameter to pipewire
+        node.proxy.set_param(ParamType::Props, 0, bytes.pod());
+        
+
         node.proxy.enum_params(7, Some(ParamType::Props), 0, 1);
         Ok(())
     }

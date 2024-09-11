@@ -2,7 +2,6 @@ mod mainloop;
 mod object;
 mod pod;
 mod store;
-mod actions;
 mod identifier;
 
 use std::{collections::HashMap, sync::mpsc, thread};
@@ -76,8 +75,7 @@ pub struct Graph {
 #[derive(Debug)]
 pub enum ToPipewireMessage {
     Update,
-    // TODO: set channel volumes individually
-    ChangeVolume(u32, f32),
+    NodeVolume(u32, Vec<f32>),
     Exit,
 }
 

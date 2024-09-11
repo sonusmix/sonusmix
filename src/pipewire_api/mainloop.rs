@@ -20,7 +20,7 @@ use pipewire::{
     types::ObjectType,
 };
 
-use crate::pipewire_api::actions::NodeAction;
+use crate::pipewire_api::object::Node;
 
 use super::{store::Store, FromPipewireMessage, Graph, ToPipewireMessage};
 
@@ -236,10 +236,11 @@ pub(super) fn init_mainloop(
             let store = store.clone();
             move |message| match message {
                 ToPipewireMessage::Update => update_fn(store.borrow().dump_graph()),
-                ToPipewireMessage::ChangeVolume(id, volume) => {
+                ToPipewireMessage::NodeVolume(id, volume) => {
+                    let value = Node::volume_channels_value(volume);
                     store
                         .borrow_mut()
-                        .node_action(id, NodeAction::ChangeVolume(volume));
+                        .send_node_value(id, &value);
                 }
                 ToPipewireMessage::Exit => mainloop.quit(),
             }
