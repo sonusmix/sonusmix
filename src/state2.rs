@@ -157,15 +157,19 @@ impl SonusmixState {
             EndpointDescriptor::EphemeralNode(id, kind) => {
                 // Check if a node with this ID exists, and if so, that it has ports in the
                 // specified direction.
-                graph.nodes.get(&id).filter(|node| {
-                    node.ports.iter().any(|port_id| {
-                        graph
-                            .ports
-                            .get(port_id)
-                            .map(|port| port.kind == kind)
-                            .unwrap_or(false)
+                graph
+                    .nodes
+                    .get(&id)
+                    .filter(|node| {
+                        node.ports.iter().any(|port_id| {
+                            graph
+                                .ports
+                                .get(port_id)
+                                .map(|port| port.kind == kind)
+                                .unwrap_or(false)
+                        })
                     })
-                }).map(|node| vec![node])
+                    .map(|node| vec![node])
             }
             EndpointDescriptor::PersistentNode(id, kind) => todo!(),
             EndpointDescriptor::GroupNode(id) => todo!(),
@@ -187,6 +191,21 @@ struct Endpoint {
     volume_mixed: bool,
     volume_locked_muted: VolumeLockMuteState,
     volume_pending: bool,
+}
+
+impl Endpoint {
+    #[cfg(test)]
+    pub fn new_test(descriptor: EndpointDescriptor) -> Self {
+        Endpoint {
+            descriptor,
+            is_placeholder: false,
+            display_name: "TESTING ENDPOINT".to_string(),
+            volume: 0.0,
+            volume_mixed: false,
+            volume_locked_muted: VolumeLockMuteState::UnmutedUnlocked,
+            volume_pending: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -372,4 +391,55 @@ fn aggregate_bools<'a>(bools: impl IntoIterator<Item = &'a bool>) -> Option<bool
         return None;
     };
     iter.all(|b| b == first).then_some(*first)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pipewire_api::object::*;
+
+    #[test]
+    fn diff_nodes_1() {
+        // 0 = client
+        // 1 = node (source)
+        // 2 = port (source)
+        let client_of_node = Client::new_test(0, false, Vec::from([1]));
+        let port_of_node = Port::new_test(2, 1, PortKind::Source);
+        let mut pipewire_node = Node::new_test(1, EndpointId::Client(0));
+
+        pipewire_node.ports = Vec::from([2]);
+
+        let pipewire_state = Graph {
+            clients: HashMap::from([(0, client_of_node); 1]),
+            devices: HashMap::new(),
+            nodes: HashMap::from([(1, pipewire_node); 1]),
+            ports: HashMap::from([(2, port_of_node); 1]),
+            links: HashMap::new(),
+        };
+
+        let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
+        let sonusmix_node_endpoint = Endpoint::new_test(sonusmix_node);
+        let mut sonusmix_state = SonusmixState {
+            active_sources: Vec::from([sonusmix_node]),
+            active_sinks: Vec::new(),
+            endpoints: HashMap::from([(sonusmix_node, sonusmix_node_endpoint); 1]),
+            links: Vec::new(),
+            applications: HashMap::new(),
+            devices: HashMap::new(),
+        };
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // Node exists on pipewire state and sonusmix state.
+        // If the properties match would be checked next.
+        // Therefore, output has to include this node.
+        assert!(endpoint_nodes.get(&sonusmix_node).is_some());
+
+        // Should not be marked as placeholder
+        let endpoint = sonusmix_state
+            .endpoints
+            .get(&sonusmix_node)
+            .expect("Endpoint was removed from state");
+        assert_eq!(endpoint.is_placeholder, false);
+    }
 }

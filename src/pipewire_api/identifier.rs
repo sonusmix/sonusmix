@@ -43,6 +43,26 @@ impl Identifier {
         }
     }
 
+    #[cfg(test)]
+    pub fn new_test() -> Self {
+        Self {
+            node_name: None,
+            node_nick: None,
+            node_description: None,
+            object_path: None,
+            application_name: None,
+            media_name: None,
+            media_title: None,
+            device_id: None,
+            route_name: None,
+            app_icon_name: None,
+            icon_name_: OnceLock::new(),
+            identifier_: OnceLock::new(),
+            human_name_: OnceLock::new(),
+            details_: OnceLock::new(),
+        }
+    }
+
     #[rustfmt::skip]
     pub fn update_from_props(&mut self, props: &DictRef) {
         self.node_name         = props.get(*NODE_NAME)        .map(ToOwned::to_owned).or(self.node_name.take());

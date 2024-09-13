@@ -1,6 +1,9 @@
 mod identifier;
 mod mainloop;
+#[cfg(not(test))]
 mod object;
+#[cfg(test)]
+pub mod object;
 mod pod;
 mod store;
 
@@ -77,18 +80,22 @@ pub enum ToPipewireMessage {
     Update,
     NodeVolume(u32, Vec<f32>),
     NodeMute(u32, bool),
+    #[rustfmt::skip]
     CreatePortLink {
         start_id: u32,
         end_id: u32,
     },
+    #[rustfmt::skip]
     CreateNodeLinks {
         start_id: u32,
         end_id: u32,
     },
+    #[rustfmt::skip]
     RemovePortLink {
         start_id: u32,
         end_id: u32,
     },
+    #[rustfmt::skip]
     RemoveNodeLinks {
         start_id: u32,
         end_id: u32,

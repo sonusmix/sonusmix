@@ -174,6 +174,17 @@ impl Client<pipewire::client::Client> {
             proxy: (),
         }
     }
+
+    #[cfg(test)]
+    pub fn new_test(id: u32, is_sonusmix: bool, nodes: Vec<u32>) -> Client<()> {
+        Client {
+            id,
+            name: "TESTING CLIENT".to_string(),
+            is_sonusmix,
+            nodes,
+            proxy: (),
+        }
+    }
 }
 
 #[derive(Derivative, Clone)]
@@ -305,6 +316,20 @@ impl Node {
             listener: (),
         }
     }
+
+    #[cfg(test)]
+    pub fn new_test(id: u32, endpoint: EndpointId) -> Node<(), ()> {
+        Node {
+            id: 0,
+            identifier: Identifier::new_test(),
+            endpoint: EndpointId::Client(0),
+            ports: Vec::new(),
+            channel_volumes: Vec::new(),
+            mute: false,
+            proxy: (),
+            listener: (),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,6 +379,19 @@ impl Port {
             node: self.node,
             kind: self.kind,
             links: self.links.clone(),
+            proxy: (),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_test(id: u32, node: u32, kind: PortKind) -> Port<()> {
+        Port {
+            id,
+            name: "TESTING PORT".to_string(),
+            channel: "L".to_string(),
+            node,
+            kind,
+            links: Vec::new(),
             proxy: (),
         }
     }
