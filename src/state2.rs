@@ -165,11 +165,16 @@ impl SonusmixState {
         graph: &Graph,
         endpoint_nodes: &HashMap<EndpointDescriptor, Vec<&PwNode>>,
     ) -> Vec<ToPipewireMessage> {
-        let (node_links, endpoint_links) = self.find_relevant_links(graph, endpoint_nodes);
+        let (node_links, mut remaining_endpoint_links) =
+            self.find_relevant_links(graph, endpoint_nodes);
 
         let mut messages = Vec::new();
         let mut to_remove_indices = Vec::new();
         for (i, link) in self.links.iter_mut().enumerate() {
+            // Remove the link from `remaining_endpoint_links` because it is now known to be in the
+            // state
+            remaining_endpoint_links.remove(&(link.start, link.end));
+
             // If either of the link's endpoints cannot be resolved, skip this link. The
             // unresolvable endpoint is currently a placeholder and so it only exists in the
             // Sonusmix state, and so does the link
@@ -260,8 +265,7 @@ impl SonusmixState {
                 }
             }
 
-            // If any messages were queued for this link, mark its volume as having pending
-            // changes.
+            // If any messages were queued for this link, mark it as having pending changes.
             if messages.len() > num_messages_before {
                 link.pending = true;
             }
@@ -273,7 +277,30 @@ impl SonusmixState {
         }
 
         // Check if any links now exist between two endpoints that were not previously connected.
-        // If so, mark those as partially connected or fully connected
+        // If so, mark those as partially connected or fully connected.
+        for (source_desc, sink_desc) in remaining_endpoint_links {
+            let (Some(source), Some(sink)) = (
+                endpoint_nodes.get(&source_desc),
+                endpoint_nodes.get(&sink_desc),
+            ) else {
+                continue;
+            };
+            match are_endpoints_connected(graph, source, sink, &node_links) {
+                Some(true) => self.links.push(Link {
+                    start: source_desc,
+                    end: sink_desc,
+                    state: LinkState::ConnectedUnlocked,
+                    pending: false,
+                }),
+                None => self.links.push(Link {
+                    start: source_desc,
+                    end: sink_desc,
+                    state: LinkState::PartiallyConnected,
+                    pending: false,
+                }),
+                Some(false) => {}
+            }
+        }
 
         messages
     }
@@ -311,13 +338,15 @@ impl SonusmixState {
         }
     }
 
+    /// Find all of the Pipewire links between any two active endpoints and collect them into the
+    /// returned data structures.
     fn find_relevant_links<'a>(
         &self,
         graph: &'a Graph,
         endpoint_nodes: &HashMap<EndpointDescriptor, Vec<&'a PwNode>>,
     ) -> (
         HashMap<(u32, u32), Vec<&'a PwLink>>,
-        HashMap<(EndpointDescriptor, EndpointDescriptor), Vec<&'a PwLink>>,
+        HashSet<(EndpointDescriptor, EndpointDescriptor)>,
     ) {
         // TODO: Benchmark if hashmap or btreemap is faster here
         let mut node_links = HashMap::new();
@@ -330,6 +359,7 @@ impl SonusmixState {
 
         let endpoint_links = endpoint_nodes
             .iter()
+            // For every combination of a source and a sink...
             .filter(|(endpoint, _)| endpoint.is_kind(PortKind::Source))
             .cartesian_product(
                 endpoint_nodes
@@ -337,15 +367,13 @@ impl SonusmixState {
                     .filter(|(endpoint, _)| endpoint.is_kind(PortKind::Sink)),
             )
             .filter_map(|((source_desc, source_nodes), (sink_desc, sink_nodes))| {
-                let links: Vec<&PwLink> = source_nodes
+                source_nodes
                     .iter()
                     .map(|node| node.id)
+                    // Do any of the source nodes connect to any of the sink nodes?
                     .cartesian_product(sink_nodes.iter().map(|node| node.id))
-                    .filter_map(|ids| node_links.get(&ids))
-                    .flat_map(|links| links.iter())
-                    .copied()
-                    .collect();
-                (!links.is_empty()).then(|| ((*source_desc, *sink_desc), links))
+                    .any(|ids| node_links.contains_key(&ids))
+                    .then_some((*source_desc, *sink_desc))
             })
             .collect();
 
