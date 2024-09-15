@@ -231,7 +231,7 @@ impl SonusmixState {
                                 // TODO: Maybe handle figuring out which exact ports to connect
                                 // here instead of offloading it to the backend? Maybe that's
                                 // unnecessary though.
-                                ToPipewireMessage::RemoveNodeLinks {
+                                ToPipewireMessage::CreateNodeLinks {
                                     start_id: source.id,
                                     end_id: sink.id,
                                 }
