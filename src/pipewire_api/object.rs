@@ -320,7 +320,7 @@ impl Node {
     #[cfg(test)]
     pub fn new_test(id: u32, endpoint: EndpointId) -> Node<(), ()> {
         Node {
-            id: 0,
+            id,
             identifier: Identifier::new_test(),
             endpoint: EndpointId::Client(0),
             ports: Vec::new(),
@@ -416,7 +416,7 @@ impl FromStr for PortKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Link<P = pipewire::link::Link> {
     pub id: u32,
@@ -455,6 +455,24 @@ impl Link {
             start_port: self.start_port,
             end_node: self.end_node,
             end_port: self.end_port,
+            proxy: (),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_test(
+        id: u32,
+        start_node: u32,
+        start_port: u32,
+        end_node: u32,
+        end_port: u32,
+    ) -> Link<()> {
+        Link {
+            id,
+            start_node,
+            start_port,
+            end_node,
+            end_port,
             proxy: (),
         }
     }

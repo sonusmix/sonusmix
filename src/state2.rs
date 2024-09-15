@@ -311,6 +311,7 @@ impl SonusmixState {
         }
     }
 
+    // TODO: Document this properly
     fn find_relevant_links<'a>(
         &self,
         graph: &'a Graph,
@@ -388,6 +389,18 @@ struct Link {
     end: EndpointDescriptor,
     state: LinkState,
     pending: bool,
+}
+
+impl Link {
+    #[cfg(test)]
+    pub fn new_test(start: EndpointDescriptor, end: EndpointDescriptor, state: LinkState) -> Link {
+        Link {
+            start,
+            end,
+            state,
+            pending: false,
+        }
+    }
 }
 
 /// Describes the state of the links between two endpoints. There is no "DisconnectedUnlocked"
@@ -675,7 +688,7 @@ fn are_endpoints_connected(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipewire_api::object::*;
+    use crate::pipewire_api::object::{Link, *};
 
     /// Basic setup for a graph:
     ///
@@ -709,6 +722,210 @@ mod tests {
         };
 
         (pipewire_state, sonusmix_state)
+    }
+
+    /// Advanced setup for a graph with links:
+    ///
+    /// - 1 node (source)
+    ///   - 2 = client
+    ///   - 3 port (source)
+    /// - 2 node (sink)
+    ///   - 4 = client
+    ///   - 5 = port (sink)
+    /// - 6 link ([`LinkState::ConnectedUnlocked`])
+    fn advanced_graph_ephermal_node_setup() -> (Graph, SonusmixState) {
+        let pipewire_state = {
+            let source_node = Node::new_test(1, EndpointId::Client(2));
+            let source_client = Client::new_test(2, false, Vec::from([1]));
+            let source_port = Port::new_test(3, 1, PortKind::Source);
+
+            let sink_node = Node::new_test(2, EndpointId::Client(4));
+            let sink_client = Client::new_test(4, false, Vec::from([2]));
+            let sink_port = Port::new_test(5, 2, PortKind::Sink);
+
+            let link = Link::new_test(
+                6,
+                source_node.id,
+                source_port.id,
+                sink_node.id,
+                sink_port.id,
+            );
+
+            let mut nodes = HashMap::new();
+            nodes.insert(1, source_node);
+            nodes.insert(2, sink_node);
+
+            let mut clients = HashMap::new();
+            clients.insert(2, source_client);
+            clients.insert(4, sink_client);
+
+            let mut ports = HashMap::new();
+            ports.insert(3, source_port);
+            ports.insert(5, sink_port);
+
+            let mut links = HashMap::new();
+            links.insert(6, link);
+
+            Graph {
+                clients,
+                devices: HashMap::new(),
+                nodes,
+                ports,
+                links,
+            }
+        };
+
+        let sonusmix_state = {
+            let source_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
+            let source_endpoint = Endpoint::new_test(source_node);
+
+            let sink_node = EndpointDescriptor::EphemeralNode(2, PortKind::Sink);
+            let sink_endpoint = Endpoint::new_test(sink_node);
+
+            let link = super::Link::new_test(source_node, sink_node, LinkState::ConnectedUnlocked);
+
+            let mut active_sources = Vec::new();
+            active_sources.push(source_node);
+
+            let mut active_sinks = Vec::new();
+            active_sinks.push(sink_node);
+
+            let mut endpoints = HashMap::new();
+            endpoints.insert(source_node, source_endpoint);
+            endpoints.insert(sink_node, sink_endpoint);
+
+            let mut links = Vec::new();
+            links.push(link);
+
+            SonusmixState {
+                active_sources,
+                active_sinks,
+                endpoints,
+                links,
+                applications: HashMap::new(),
+                devices: HashMap::new(),
+            }
+        };
+
+        (pipewire_state, sonusmix_state)
+    }
+
+    #[test]
+    fn diff_links_1() {
+        let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        // fully connected
+        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // messages should be empty as state is correct
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    /// Event is coming from pipewire with no link.
+    /// The sonusmix state should remove its link.
+    fn diff_links_unlocked() {
+        let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        // fully connected
+        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
+
+        // now we assume that these nodes are not anymore connected in pipewire
+        pipewire_state.nodes.clear();
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // Since the link is not locked, the sonusmix state should be updated
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+        assert!(messages.is_empty());
+        assert!(sonusmix_state.links.is_empty());
+    }
+
+    #[test]
+    /// Event is coming from pipewire with no link.
+    /// An event should be created to create that link again.
+    fn diff_links_locked() {
+        let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        // fully connected
+        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
+
+        // now we assume that these nodes are not anymore connected in pipewire
+        pipewire_state.nodes.clear();
+        // we also lock it
+        sonusmix_state.links[0].state = LinkState::ConnectedLocked;
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // since pipewire does not have the link anymore, it should be created again.
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+        let expected_message = ToPipewireMessage::CreateNodeLinks {
+            start_id: 1,
+            end_id: 2,
+        };
+        assert!(messages.contains(&expected_message));
+    }
+
+    #[test]
+    /// Event is coming from pipewire with a new link.
+    /// An event should be created to remove that link.
+    fn diff_links_disconnected_locked() {
+        let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        // fully connected
+        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
+
+        // pipewire has a link (pipewire_state.node[0]),
+        // but the link should be disconnected.
+        // we also lock it
+        sonusmix_state.links[0].state = LinkState::DisconnectedLocked;
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // since pipewire does not have the link anymore, it should be created again.
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+        let expected_message = ToPipewireMessage::RemoveNodeLinks {
+            start_id: 1,
+            end_id: 2,
+        };
+        assert!(messages.contains(&expected_message));
+    }
+
+    #[test]
+    fn are_endpoints_connected_1() {
+        let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let source_endpoint = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
+        let sink_endpoint = EndpointDescriptor::EphemeralNode(2, PortKind::Sink);
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        let link = pipewire_state.links.get(&6).expect("Link was destroyed");
+        // These are the returns expected
+        let expected_link = ((1, 2), link);
+        // TODO: Is this correctly defined? What should be returned?
+        let expected_link_endpoints = ((source_endpoint, sink_endpoint), link);
+
+        // find the relevant links
+        let relevant_links = sonusmix_state.find_relevant_links(&pipewire_state, &endpoint_nodes);
+
+        let returned_nodes = relevant_links
+            .0
+            .get(&expected_link.0)
+            .expect("Link was not found in returned nodes");
+        // there should only be a single link
+        assert_eq!(returned_nodes.len(), 1);
+        assert!(returned_nodes.contains(&expected_link.1));
+
+        let returned_nodes_endpoints = relevant_links
+            .1
+            .get(&expected_link_endpoints.0)
+            .expect("Link was not found in returned endpoints");
+        // there should only be a single link
+        assert_eq!(returned_nodes_endpoints.len(), 1);
+        assert!(returned_nodes_endpoints.contains(&expected_link_endpoints.1));
     }
 
     #[test]
@@ -758,7 +975,7 @@ mod tests {
 
     /// Scenario: The user changes the volume of a node in the UI, which
     /// marks the volume on that node as pending. PipeWire however, returns a wrong
-    /// volume. Ideally, a message with that volume should be sent again.
+    /// volume.
     // TODO: make it more reliable by checking if pipewire maybe
     // not accepted our volume, which means it will be set as
     // pending forever. This is basically a placeholder for
@@ -777,7 +994,6 @@ mod tests {
             .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
         // here we set the wrong volume
         pipewire_node.channel_volumes = Vec::from([got_volume]);
-        let node_id = pipewire_node.id;
 
         let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
 
@@ -905,8 +1121,6 @@ mod tests {
             // revert to the old value in this case
             assert_eq!(endpoint.volume, current_volume);
             // notify pipewire of this changed volume.
-            // TODO: figure out why this is failing. The node id is 1
-            // but the event is getting sent to 0 (the client).
             assert!(pipewire_messages.contains(&ToPipewireMessage::NodeVolume(
                 1,
                 Vec::from([current_volume, current_volume])
