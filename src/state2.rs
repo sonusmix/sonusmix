@@ -735,11 +735,13 @@ mod tests {
     /// - 6 link ([`LinkState::ConnectedUnlocked`])
     fn advanced_graph_ephermal_node_setup() -> (Graph, SonusmixState) {
         let pipewire_state = {
-            let source_node = Node::new_test(1, EndpointId::Client(2));
+            let mut source_node = Node::new_test(1, EndpointId::Client(2));
+            source_node.ports = Vec::from([3]);
             let source_client = Client::new_test(2, false, Vec::from([1]));
             let source_port = Port::new_test(3, 1, PortKind::Source);
 
-            let sink_node = Node::new_test(2, EndpointId::Client(4));
+            let mut sink_node = Node::new_test(2, EndpointId::Client(4));
+            sink_node.ports = Vec::from([5]);
             let sink_client = Client::new_test(4, false, Vec::from([2]));
             let sink_port = Port::new_test(5, 2, PortKind::Sink);
 
@@ -830,15 +832,18 @@ mod tests {
     fn diff_links_unlocked() {
         let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
 
+        let link = sonusmix_state.links[0];
+
         // fully connected
-        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
+        assert_eq!(link.state.is_connected(), Some(true));
 
         // now we assume that these nodes are not anymore connected in pipewire
-        pipewire_state.nodes.clear();
+        pipewire_state.links.clear();
 
         let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
 
         // Since the link is not locked, the sonusmix state should be updated
+        assert!(!link.state.is_locked());
         let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
         assert!(messages.is_empty());
         assert!(sonusmix_state.links.is_empty());
@@ -854,7 +859,7 @@ mod tests {
         assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
 
         // now we assume that these nodes are not anymore connected in pipewire
-        pipewire_state.nodes.clear();
+        pipewire_state.links.clear();
         // we also lock it
         sonusmix_state.links[0].state = LinkState::ConnectedLocked;
 
