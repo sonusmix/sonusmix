@@ -383,7 +383,7 @@ impl Endpoint {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 struct Link {
     start: EndpointDescriptor,
     end: EndpointDescriptor,
@@ -897,6 +897,29 @@ mod tests {
             end_id: 2,
         };
         assert!(messages.contains(&expected_message));
+    }
+
+    #[test]
+    /// Event is coming from pipewire with a new link.
+    /// The link should be added to sonusmix.
+    fn diff_links_disconnected_unlocked() {
+        let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        // fully connected
+        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
+
+        let link_to_be_added = sonusmix_state.links[0];
+
+        // pipewire has a link (pipewire_state.node[0]),
+        // which is not yet in sonusmix.
+        sonusmix_state.links.clear();
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // since pipewire does not have the link anymore, it should be created again.
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+        assert!(messages.is_empty());
+        assert!(sonusmix_state.links.contains(&link_to_be_added));
     }
 
     #[test]
