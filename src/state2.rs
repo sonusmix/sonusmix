@@ -829,7 +829,7 @@ mod tests {
     #[test]
     /// Event is coming from pipewire with no link.
     /// The sonusmix state should remove its link.
-    fn diff_links_unlocked() {
+    fn diff_links_pipewire_remove_link_unlocked() {
         let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
 
         let link = sonusmix_state.links[0];
@@ -852,7 +852,7 @@ mod tests {
     #[test]
     /// Event is coming from pipewire with no link.
     /// An event should be created to create that link again.
-    fn diff_links_locked() {
+    fn diff_links_connected_locked() {
         let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
 
         // fully connected
@@ -902,7 +902,7 @@ mod tests {
     #[test]
     /// Event is coming from pipewire with a new link.
     /// The link should be added to sonusmix.
-    fn diff_links_disconnected_unlocked() {
+    fn diff_links_new_pipewire_link() {
         let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
 
         // fully connected
@@ -923,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn are_endpoints_connected_1() {
+    fn find_relevant_links() {
         let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
         let source_endpoint = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
         let sink_endpoint = EndpointDescriptor::EphemeralNode(2, PortKind::Sink);
@@ -977,7 +977,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_nodes_2() {
+    fn diff_nodes_placeholder() {
         let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
 
         // remove the node from the pipewire state to emulate the node being
@@ -1009,7 +1009,7 @@ mod tests {
     // pending forever. This is basically a placeholder for
     // that rn.
     #[test]
-    fn diff_properties_1() {
+    fn diff_properties_wrong_volume_while_pending() {
         let expected_volume = 0.2; // this is what the UI expects
         let got_volume = 0.125; // this is what it gets from pipewire
 
@@ -1050,7 +1050,7 @@ mod tests {
     /// Scenario: The user did not change the volume of the node in the UI,
     /// which means the volume should be applied to the Sonusmix state.
     #[test]
-    fn diff_properties_2() {
+    fn diff_properties_new_volume_pipewire() {
         let current_volume = 0.2; // the current volume in the UI
         let new_volume = 0.125; // this is what it gets from pipewire
 
