@@ -1,9 +1,13 @@
-use std::{collections::HashMap, ops::BitAnd};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    ops::BitAnd,
+};
 
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::pipewire_api::{Graph, Node as PwNode, PortKind, ToPipewireMessage};
+use crate::pipewire_api::{Graph, Link as PwLink, Node as PwNode, PortKind, ToPipewireMessage};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct SonusmixState {
@@ -146,7 +150,7 @@ impl SonusmixState {
                 }
             }
 
-            // If any messages were queued from this endpoint, mark its volume as having pending
+            // If any messages were queued for this endpoint, mark its volume as having pending
             // changes.
             if messages.len() > num_messages_before {
                 endpoint.volume_pending = true;
@@ -161,7 +165,117 @@ impl SonusmixState {
         graph: &Graph,
         endpoint_nodes: &HashMap<EndpointDescriptor, Vec<&PwNode>>,
     ) -> Vec<ToPipewireMessage> {
-        todo!()
+        let (node_links, endpoint_links) = self.find_relevant_links(graph, endpoint_nodes);
+
+        let mut messages = Vec::new();
+        let mut to_remove_indices = Vec::new();
+        for (i, link) in self.links.iter_mut().enumerate() {
+            // If either of the link's endpoints cannot be resolved, skip this link. The
+            // unresolvable endpoint is currently a placeholder and so it only exists in the
+            // Sonusmix state, and so does the link
+            let (Some(source), Some(sink)) = (
+                endpoint_nodes.get(&link.start),
+                endpoint_nodes.get(&link.end),
+            ) else {
+                continue;
+            };
+
+            // If either of the link's endpoints no longer exist, remove this link
+            // TODO: We should never actually have this case. This should be handled by the update function.
+            // if !self.endpoints.contains_key(&link.start) || !self.endpoints.contains_key(&link.end) {
+            //     to_remove_indices.push(i);
+            //     continue;
+            // }
+
+            // If the link has pending changes, simply check if the states match, and if so, remove
+            // the pending marker
+            if link.pending {
+                if are_endpoints_connected(graph, source, sink, &node_links)
+                    == link.state.is_connected()
+                {
+                    link.pending = false;
+                }
+                continue;
+            }
+
+            let num_messages_before = messages.len();
+
+            match link.state {
+                LinkState::PartiallyConnected => {
+                    // Check if link should actually now be disconnected or fully connected
+                    match are_endpoints_connected(graph, source, sink, &node_links) {
+                        Some(true) => link.state = LinkState::ConnectedUnlocked,
+                        Some(false) => to_remove_indices.push(i),
+                        None => {}
+                    }
+                }
+                LinkState::ConnectedUnlocked => {
+                    // Check if all necessary links are still there, if not, change to partially
+                    // connected or disconnected
+                    match are_endpoints_connected(graph, source, sink, &node_links) {
+                        Some(true) => {}
+                        Some(false) => to_remove_indices.push(i),
+                        None => link.state = LinkState::PartiallyConnected,
+                    }
+                }
+                LinkState::ConnectedLocked => {
+                    // Check if any necessary links are missing. If so, create them.
+                    messages.extend(
+                        source
+                            .iter()
+                            .cartesian_product(sink.iter())
+                            .filter(|(source, sink)| {
+                                are_nodes_connected(graph, source, sink, &node_links) != Some(true)
+                            })
+                            .map(|(source, sink)| {
+                                // TODO: Maybe handle figuring out which exact ports to connect
+                                // here instead of offloading it to the backend? Maybe that's
+                                // unnecessary though.
+                                ToPipewireMessage::RemoveNodeLinks {
+                                    start_id: source.id,
+                                    end_id: sink.id,
+                                }
+                            }),
+                    );
+                }
+                LinkState::DisconnectedLocked => {
+                    // Check if any links exist. If so, remove them.
+                    messages.extend(
+                        source
+                            .iter()
+                            .cartesian_product(sink.iter())
+                            .filter(|(source, sink)| {
+                                are_nodes_connected(graph, source, sink, &node_links) != Some(false)
+                            })
+                            .map(|(source, sink)| {
+                                // TODO: Maybe handle figuring out which exact ports to disconnect
+                                // here instead of offloading it to the backend? Maybe that's
+                                // unnecessary though.
+                                ToPipewireMessage::RemoveNodeLinks {
+                                    start_id: source.id,
+                                    end_id: sink.id,
+                                }
+                            }),
+                    );
+                }
+            }
+
+            // If any messages were queued for this link, mark its volume as having pending
+            // changes.
+            if messages.len() > num_messages_before {
+                link.pending = true;
+            }
+        }
+        // Remove any links whose endpoints no longer exist. Iterate in reverse to preserve
+        // the indices of the remaining elements to remove.
+        for i in to_remove_indices.into_iter().rev() {
+            self.links.swap_remove(i);
+        }
+
+        // Check if any links now exist between two endpoints that were not previously connected.
+        // If so, mark those as partially connected or fully connected
+
+        messages
     }
 
     /// Resolve an endpoint to a set of nodes in the Pipewire graph.
@@ -195,6 +309,47 @@ impl SonusmixState {
             EndpointDescriptor::Application(id, kind) => todo!(),
             EndpointDescriptor::Device(id, kind) => todo!(),
         }
+    }
+
+    fn find_relevant_links<'a>(
+        &self,
+        graph: &'a Graph,
+        endpoint_nodes: &HashMap<EndpointDescriptor, Vec<&'a PwNode>>,
+    ) -> (
+        HashMap<(u32, u32), Vec<&'a PwLink>>,
+        HashMap<(EndpointDescriptor, EndpointDescriptor), Vec<&'a PwLink>>,
+    ) {
+        // TODO: Benchmark if hashmap or btreemap is faster here
+        let mut node_links = HashMap::new();
+        for link in graph.links.values() {
+            node_links
+                .entry((link.start_node, link.end_node))
+                .or_insert_with(|| Vec::new())
+                .push(link);
+        }
+
+        let endpoint_links = endpoint_nodes
+            .iter()
+            .filter(|(endpoint, _)| endpoint.is_kind(PortKind::Source))
+            .cartesian_product(
+                endpoint_nodes
+                    .iter()
+                    .filter(|(endpoint, _)| endpoint.is_kind(PortKind::Sink)),
+            )
+            .filter_map(|((source_desc, source_nodes), (sink_desc, sink_nodes))| {
+                let links: Vec<&PwLink> = source_nodes
+                    .iter()
+                    .map(|node| node.id)
+                    .cartesian_product(sink_nodes.iter().map(|node| node.id))
+                    .filter_map(|ids| node_links.get(&ids))
+                    .flat_map(|links| links.iter())
+                    .copied()
+                    .collect();
+                (!links.is_empty()).then(|| ((*source_desc, *sink_desc), links))
+            })
+            .collect();
+
+        (node_links, endpoint_links)
     }
 }
 
@@ -251,6 +406,23 @@ enum LinkState {
     ConnectedLocked,
     /// Sonusmix will remove any links between these two endpoints.
     DisconnectedLocked,
+}
+
+impl LinkState {
+    fn is_locked(self) -> bool {
+        match self {
+            Self::ConnectedLocked | Self::DisconnectedLocked => true,
+            _ => false,
+        }
+    }
+
+    fn is_connected(self) -> Option<bool> {
+        match self {
+            Self::PartiallyConnected => None,
+            Self::ConnectedUnlocked | Self::ConnectedLocked => Some(true),
+            Self::DisconnectedLocked => Some(false),
+        }
+    }
 }
 
 /// This enum encodes the possibility that if an endpoint represents multiple Pipewire nodes, some
@@ -324,6 +496,18 @@ enum EndpointDescriptor {
     /// Represents all sources or sinks (except those that are explicitly excluded) belonging to a
     /// particular device. These will be managed and routed together.
     Device(DeviceId, PortKind),
+}
+
+impl EndpointDescriptor {
+    fn is_kind(self, kind: PortKind) -> bool {
+        match self {
+            Self::GroupNode(_) => true,
+            Self::EphemeralNode(_, kind_)
+            | Self::PersistentNode(_, kind_)
+            | Self::Application(_, kind_)
+            | Self::Device(_, kind_) => kind_ == kind,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -410,6 +594,82 @@ fn aggregate_bools<'a>(bools: impl IntoIterator<Item = &'a bool>) -> Option<bool
         return None;
     };
     iter.all(|b| b == first).then_some(*first)
+}
+
+/// Returns whether the two node are connected. Some(bool) if the nodes are completely connected or
+/// not, None if they are partially connected.
+/// For now, "completely connected" means that every port on one of the nodes (either one) is
+/// connected to a port on the other. "not connected" means there are no links from any port on one
+/// node to any port on the other. "partially connected" is any other state.
+fn are_nodes_connected(
+    graph: &Graph,
+    source: &PwNode,
+    sink: &PwNode,
+    node_links: &HashMap<(u32, u32), Vec<&PwLink>>,
+) -> Option<bool> {
+    // Find all links connected between the two nodes we're searching for
+    let relevant_links = node_links
+        .get(&(source.id, sink.id))
+        .map(|links| links.as_slice())
+        .unwrap_or(&[]);
+
+    // If no links, nodes are not connected
+    if relevant_links.is_empty() {
+        return Some(false);
+    }
+
+    // If all of one node's ports are connected to by relevant links, nodes are completely connected
+    // TODO: Maybe save ports as "source ports" and "sink ports" on the node. That might help with
+    // being able to still connect to nodes that are temporarily missing
+    if source
+        .ports
+        .iter()
+        .filter(|id| {
+            graph
+                .ports
+                .get(&id)
+                .map(|port| port.kind == PortKind::Source)
+                .unwrap_or(false)
+        })
+        .all(|id| relevant_links.iter().any(|link| link.start_port == *id))
+        || sink
+            .ports
+            .iter()
+            .filter(|id| {
+                graph
+                    .ports
+                    .get(&id)
+                    .map(|port| port.kind == PortKind::Sink)
+                    .unwrap_or(false)
+            })
+            .all(|id| relevant_links.iter().any(|link| link.end_port == *id))
+    {
+        return Some(true);
+    }
+
+    // Otherwise, nodes are partially connected
+    None
+}
+
+// Has similar semantics to [`are_nodes_connected`], but for endpoints. Not connected
+// (`Some(false)`) means there are no links between the nodes making up the source endpoint and
+// those making up the sink. Completely connected (`Some(true)`) means every node in the source
+// endpoint is completely connected to every node in the sink (see [`are_nodes_connected`]).
+// Partially connected (`None`) is any other state.
+fn are_endpoints_connected(
+    graph: &Graph,
+    source: &[&PwNode],
+    sink: &[&PwNode],
+    node_links: &HashMap<(u32, u32), Vec<&PwLink>>,
+) -> Option<bool> {
+    let mut iter = source
+        .iter()
+        .cartesian_product(sink.iter())
+        .map(|(source_node, sink_node)| {
+            are_nodes_connected(graph, source_node, sink_node, node_links)
+        });
+    let first = iter.next()??;
+    iter.all(|x| x == Some(first)).then_some(first)
 }
 
 #[cfg(test)]
