@@ -29,6 +29,10 @@ impl SonusmixState {
 
     /// Try to resolve each endpoint in the Sonusmix state to one or mode nodes in the Pipewire
     /// graph, and mark endpoints that could not be resolved as placeholders.
+    ///
+    /// Basically, this means that every hardware endpoint that exists on both states is returned, while other
+    /// hardware endpoints (only existing on the sonusmix state) are marked as a placeholder, so the UI can
+    /// display the endpoint as deactivated.
     fn diff_nodes<'a>(&mut self, graph: &'a Graph) -> HashMap<EndpointDescriptor, Vec<&'a PwNode>> {
         let mut endpoint_nodes = HashMap::new();
         // Keep a record of which endpoints are placeholders or not so that we're not mutating
@@ -45,8 +49,6 @@ impl SonusmixState {
                 placeholders.push((endpoint, false));
             } else {
                 placeholders.push((endpoint, true));
-                // TODO: If the endpoint is a group node, tell the backend to create a virtual
-                // device for it.
             }
         }
         for (endpoint, is_placeholder) in placeholders {
@@ -100,6 +102,7 @@ impl SonusmixState {
             } else if endpoint.volume_locked_muted.is_locked() {
                 // Tell any nodes that don't have all channels matching the endpoint volume to set
                 // their channel volumes to the endpoint volume
+                endpoint.volume_mixed = false;
                 messages.extend(
                     nodes
                         .iter()
@@ -127,6 +130,20 @@ impl SonusmixState {
                     VolumeLockMuteState::from_bools_unlocked(nodes.iter().map(|node| &node.mute));
                 endpoint.volume =
                     average_volumes(nodes.iter().flat_map(|node| &node.channel_volumes));
+                // check if the volume is mixed. An unlocked volume can be in both states.
+                // A locked volume can not.
+                for node in nodes {
+                    if node.channel_volumes.is_empty() {
+                        endpoint.volume_mixed = false;
+                    } else {
+                        let first = node.channel_volumes[0];
+                        if node.channel_volumes.iter().all(|&x| x == first) {
+                            endpoint.volume_mixed = false;
+                        } else {
+                            endpoint.volume_mixed = true;
+                        }
+                    }
+                }
             }
 
             // If any messages were queued from this endpoint, mark its volume as having pending
@@ -148,6 +165,8 @@ impl SonusmixState {
     }
 
     /// Resolve an endpoint to a set of nodes in the Pipewire graph.
+    ///
+    /// Returns a list of [`PwNode`], which are present on both states.
     fn resolve_endpoint<'a>(
         &self,
         endpoint: EndpointDescriptor,
@@ -257,7 +276,7 @@ enum VolumeLockMuteState {
 impl VolumeLockMuteState {
     fn is_locked(self) -> bool {
         match self {
-            Self::MutedLocked | Self::MutedUnlocked => true,
+            Self::MutedLocked | Self::UnmutedLocked => true,
             _ => false,
         }
     }
@@ -398,11 +417,12 @@ mod tests {
     use super::*;
     use crate::pipewire_api::object::*;
 
-    #[test]
-    fn diff_nodes_1() {
-        // 0 = client
-        // 1 = node (source)
-        // 2 = port (source)
+    /// Basic setup for a graph:
+    ///
+    /// 0 = client
+    /// 1 = node (source)
+    /// 2 = port (source)
+    fn basic_graph_ephermal_node_setup() -> (Graph, SonusmixState) {
         let client_of_node = Client::new_test(0, false, Vec::from([1]));
         let port_of_node = Port::new_test(2, 1, PortKind::Source);
         let mut pipewire_node = Node::new_test(1, EndpointId::Client(0));
@@ -419,7 +439,7 @@ mod tests {
 
         let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
         let sonusmix_node_endpoint = Endpoint::new_test(sonusmix_node);
-        let mut sonusmix_state = SonusmixState {
+        let sonusmix_state = SonusmixState {
             active_sources: Vec::from([sonusmix_node]),
             active_sinks: Vec::new(),
             endpoints: HashMap::from([(sonusmix_node, sonusmix_node_endpoint); 1]),
@@ -428,11 +448,19 @@ mod tests {
             devices: HashMap::new(),
         };
 
+        (pipewire_state, sonusmix_state)
+    }
+
+    #[test]
+    fn diff_nodes_1() {
+        let (pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+
+        let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
+
         let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
 
         // Node exists on pipewire state and sonusmix state.
-        // If the properties match would be checked next.
-        // Therefore, output has to include this node.
+        // Output has to include this node.
         assert!(endpoint_nodes.get(&sonusmix_node).is_some());
 
         // Should not be marked as placeholder
@@ -441,5 +469,208 @@ mod tests {
             .get(&sonusmix_node)
             .expect("Endpoint was removed from state");
         assert_eq!(endpoint.is_placeholder, false);
+    }
+
+    #[test]
+    fn diff_nodes_2() {
+        let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+
+        // remove the node from the pipewire state to emulate the node being
+        // removed.
+        pipewire_state.nodes.clear();
+        pipewire_state.ports.clear();
+
+        let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // Node only exists on sonusmix state.
+        // Output should not include this node.
+        assert!(endpoint_nodes.get(&sonusmix_node).is_none());
+
+        // Should be marked as placeholder
+        let endpoint = sonusmix_state
+            .endpoints
+            .get(&sonusmix_node)
+            .expect("Endpoint was removed from state");
+        assert_eq!(endpoint.is_placeholder, true);
+    }
+
+    /// Scenario: The user changes the volume of a node in the UI, which
+    /// marks the volume on that node as pending. PipeWire however, returns a wrong
+    /// volume. Ideally, a message with that volume should be sent again.
+    // TODO: make it more reliable by checking if pipewire maybe
+    // not accepted our volume, which means it will be set as
+    // pending forever. This is basically a placeholder for
+    // that rn.
+    #[test]
+    fn diff_properties_1() {
+        let expected_volume = 0.2; // this is what the UI expects
+        let got_volume = 0.125; // this is what it gets from pipewire
+
+        let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+
+        // get the node
+        let pipewire_node = pipewire_state
+            .nodes
+            .get_mut(&1)
+            .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
+        // here we set the wrong volume
+        pipewire_node.channel_volumes = Vec::from([got_volume]);
+        let node_id = pipewire_node.id;
+
+        let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
+
+        let endpoint = sonusmix_state
+            .endpoints
+            .get_mut(&sonusmix_node)
+            .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
+        // this is the value set in the UI
+        endpoint.volume = expected_volume;
+        endpoint.volume_pending = true;
+
+        // pipewire sent an update with the pipewire state...
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // Node exists on pipewire state and sonusmix state.
+        // Therefore, output has to include this node.
+        assert!(endpoint_nodes.get(&sonusmix_node).is_some());
+
+        // Compare properties.
+        let pipewire_messages = sonusmix_state.diff_properties(&pipewire_state, &endpoint_nodes);
+
+        assert!(pipewire_messages.is_empty());
+    }
+
+    /// Scenario: The user did not change the volume of the node in the UI,
+    /// which means the volume should be applied to the Sonusmix state.
+    #[test]
+    fn diff_properties_2() {
+        let current_volume = 0.2; // the current volume in the UI
+        let new_volume = 0.125; // this is what it gets from pipewire
+
+        let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+
+        // get the node
+        let pipewire_node = pipewire_state
+            .nodes
+            .get_mut(&1)
+            .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
+        // here we set the new volume
+        pipewire_node.channel_volumes = Vec::from([new_volume]);
+
+        let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
+        {
+            let endpoint = sonusmix_state
+                .endpoints
+                .get_mut(&sonusmix_node)
+                .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
+            // this is the value set in the UI
+            endpoint.volume = current_volume;
+            // the volume is not pending
+            endpoint.volume_pending = false;
+        }
+
+        // pipewire sent an update with the pipewire state...
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // Node exists on pipewire state and sonusmix state.
+        // Therefore, output has to include this node.
+        assert!(endpoint_nodes.get(&sonusmix_node).is_some());
+
+        // Compare properties.
+        let pipewire_messages = sonusmix_state.diff_properties(&pipewire_state, &endpoint_nodes);
+
+        // message should be empty and sonusmix state should be updated
+        assert!(pipewire_messages.is_empty());
+        let endpoint = sonusmix_state
+            .endpoints
+            .get(&sonusmix_node)
+            .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
+        assert_eq!(endpoint.volume, new_volume);
+    }
+
+    fn diff_properties_mixed_volume_unlocked_or_locked(locked: bool) {
+        let current_volume = 0.2; // the current volume in the UI
+        let new_volume = Vec::from([0.125, 0.225]); // this is what it gets from pipewire
+
+        let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+
+        // get the node
+        let pipewire_node = pipewire_state
+            .nodes
+            .get_mut(&1)
+            .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
+        // here we set the new volume
+        // the new volume is mixed
+        pipewire_node.channel_volumes = new_volume.clone();
+
+        let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
+        {
+            let endpoint = sonusmix_state
+                .endpoints
+                .get_mut(&sonusmix_node)
+                .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
+            // this is the value set in the UI
+            endpoint.volume = current_volume;
+            // the volume is not pending
+            endpoint.volume_pending = false;
+            // TODO: check muted
+            if locked {
+                endpoint.volume_locked_muted = VolumeLockMuteState::UnmutedLocked;
+            } else {
+                endpoint.volume_locked_muted = VolumeLockMuteState::UnmutedUnlocked;
+            }
+        }
+
+        // pipewire sent an update with the pipewire state...
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // Node exists on pipewire state and sonusmix state.
+        // Therefore, output has to include this node.
+        assert!(endpoint_nodes.get(&sonusmix_node).is_some());
+
+        // Compare properties.
+        let pipewire_messages = sonusmix_state.diff_properties(&pipewire_state, &endpoint_nodes);
+
+        let endpoint = sonusmix_state
+            .endpoints
+            .get(&sonusmix_node)
+            .expect("Could not find node. NOT AN ISSUE WITH DIFF.");
+
+        if locked {
+            // revert to the old value in this case
+            assert_eq!(endpoint.volume, current_volume);
+            // notify pipewire of this changed volume.
+            // TODO: figure out why this is failing. The node id is 1
+            // but the event is getting sent to 0 (the client).
+            assert!(pipewire_messages.contains(&ToPipewireMessage::NodeVolume(
+                1,
+                Vec::from([current_volume, current_volume])
+            )));
+            // no pending needed since this will be done on every iteration.
+            // However, for consistency it should be done anyways.
+            assert!(endpoint.volume_pending);
+        } else {
+            // the sonusmix state should mark the volume as mixed.
+            assert!(endpoint.volume_mixed);
+            // create an average of both values
+            assert_eq!(endpoint.volume, average_volumes(&new_volume));
+            // message should be empty as there is nothing to do
+            assert!(pipewire_messages.is_empty());
+        }
+    }
+
+    #[test]
+    fn diff_properties_mixed_volume_locked() {
+        diff_properties_mixed_volume_unlocked_or_locked(true);
+    }
+
+    #[test]
+    fn diff_properties_mixed_volume_unlocked() {
+        diff_properties_mixed_volume_unlocked_or_locked(false);
     }
 }

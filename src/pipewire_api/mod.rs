@@ -75,7 +75,7 @@ pub struct Graph {
     pub links: HashMap<u32, Link>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ToPipewireMessage {
     Update,
     NodeVolume(u32, Vec<f32>),
