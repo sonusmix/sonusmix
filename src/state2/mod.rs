@@ -308,16 +308,7 @@ impl SonusmixState {
                 // check if the volume is mixed. An unlocked volume can be in both states.
                 // A locked volume can not.
                 for node in nodes {
-                    if node.channel_volumes.is_empty() {
-                        endpoint.volume_mixed = false;
-                    } else {
-                        let first = node.channel_volumes[0];
-                        if node.channel_volumes.iter().all(|&x| x == first) {
-                            endpoint.volume_mixed = false;
-                        } else {
-                            endpoint.volume_mixed = true;
-                        }
-                    }
+                    endpoint.volume_mixed = volumes_mixed(&node.channel_volumes);
                 }
             }
 
@@ -809,6 +800,19 @@ fn average_volumes<'a>(volumes: impl IntoIterator<Item = &'a f32>) -> f32 {
         total += volume.powf(1.0 / 3.0);
     }
     (total / count.max(1) as f32).powf(3.0)
+}
+
+fn volumes_mixed<'a>(volumes: impl IntoIterator<Item = &'a f32>) -> bool {
+    let mut iterator = volumes.into_iter();
+    let first = match iterator.next() {
+        Some(first) => first,
+        _ => return false
+    };
+    if iterator.all(|x| x == first) {
+        false
+    } else {
+        true
+    }
 }
 
 /// Aggregate an iterator of booleans into an `Option<bool>`. Some if all booleans are the same,
@@ -1373,6 +1377,13 @@ mod tests {
             // message should be empty as there is nothing to do
             assert!(pipewire_messages.is_empty());
         }
+    }
+
+    #[test]
+    fn volume_mixed() {
+        assert_eq!(volumes_mixed(&[0.1, 0.12, 0.18]), true);
+        assert_eq!(volumes_mixed(&[0.1, 0.1, 0.1]), false);
+        assert_eq!(volumes_mixed(&[]), false);
     }
 
     #[test]
