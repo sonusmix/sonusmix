@@ -1,13 +1,18 @@
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    ops::BitAnd,
-};
+use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
 use crate::pipewire_api::{Graph, Link as PwLink, Node as PwNode, PortKind, ToPipewireMessage};
+
+enum SonusmixMsg {
+    AddEphemeralNode(u32, PortKind),
+    RemoveEndpoint(EndpointDescriptor),
+    SetVolume(EndpointDescriptor, f32),
+    SetMute(EndpointDescriptor, bool),
+    SetVolumeLocked(EndpointDescriptor, bool),
+}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct SonusmixState {
@@ -20,6 +25,160 @@ struct SonusmixState {
 }
 
 impl SonusmixState {
+    /// Updates the Sonusmix state based on the incoming message, and generates Pipewire messages
+    /// to reflect those changes.
+    fn update(&mut self, graph: &Graph, message: SonusmixMsg) -> Vec<ToPipewireMessage> {
+        match message {
+            SonusmixMsg::AddEphemeralNode(id, kind) => {
+                let Some(node) = graph.nodes.get(&id).filter(|node| {
+                    // Verify the node has ports of the correct kind
+                    node.ports.iter().any(|port_id| {
+                        graph
+                            .ports
+                            .get(port_id)
+                            .map(|port| port.kind == kind)
+                            .unwrap_or(false)
+                    })
+                }) else {
+                    return Vec::new();
+                };
+
+                let descriptor = EndpointDescriptor::EphemeralNode(id, kind);
+                let endpoint = Endpoint::new(descriptor)
+                    .with_display_name(node.identifier.human_name().to_owned())
+                    .with_volume(
+                        average_volumes(&node.channel_volumes),
+                        !node.channel_volumes.iter().all_equal(),
+                    )
+                    .with_mute_unlocked(node.mute);
+
+                self.endpoints.insert(descriptor, endpoint);
+
+                Vec::new()
+            }
+            SonusmixMsg::RemoveEndpoint(endpoint_desc) => {
+                let Some(endpoint) = self.endpoints.remove(&endpoint_desc) else {
+                    // If the endpoint doesn't exist, exit
+                    return Vec::new();
+                };
+
+                // TODO: Handle cleanup specific to each endpoint type here. AFAIK the only type
+                // that needs extra handling will be group nodes (i.e., remove the backing
+                // Pipewire node)
+
+                Vec::new()
+            }
+            SonusmixMsg::SetVolume(endpoint_desc, volume) => {
+                // Resolve here instead of later so we don't have overlapping borrows
+                let nodes = self.resolve_endpoint(endpoint_desc, graph);
+                let Some(endpoint) = self.endpoints.get_mut(&endpoint_desc) else {
+                    // If the endpoint doesn't exist, exit
+                    return Vec::new();
+                };
+                endpoint.volume = volume;
+                endpoint.volume_mixed = false;
+
+                if let Some(nodes) = nodes {
+                    // Set all channels on all nodes to the volume
+                    let messages: Vec<ToPipewireMessage> = nodes
+                        .into_iter()
+                        .map(|node| {
+                            ToPipewireMessage::NodeVolume(
+                                node.id,
+                                vec![volume; node.channel_volumes.len()],
+                            )
+                        })
+                        .collect();
+                    if !messages.is_empty() {
+                        endpoint.volume_pending = true;
+                    }
+                    messages
+                } else {
+                    Vec::new()
+                }
+            }
+            SonusmixMsg::SetMute(endpoint_desc, muted) => {
+                // Resolve here instead of later so we don't have overlapping borrows
+                let nodes = self.resolve_endpoint(endpoint_desc, graph);
+                let Some(endpoint) = self.endpoints.get_mut(&endpoint_desc) else {
+                    // If the endpoint doesn't exist, exit
+                    return Vec::new();
+                };
+                endpoint.volume_locked_muted = endpoint.volume_locked_muted.with_mute(muted);
+
+                if let Some(nodes) = nodes {
+                    // Set all nodes to the mute state
+                    let messages: Vec<ToPipewireMessage> = nodes
+                        .into_iter()
+                        .map(|node| ToPipewireMessage::NodeMute(node.id, muted))
+                        .collect();
+                    if !messages.is_empty() {
+                        endpoint.volume_pending = true;
+                    }
+                    messages
+                } else {
+                    Vec::new()
+                }
+            }
+            SonusmixMsg::SetVolumeLocked(endpoint_desc, locked) => {
+                // Resolve here instead of later so we don't have overlapping borrows
+                let nodes = self.resolve_endpoint(endpoint_desc, graph);
+                let Some(endpoint) = self.endpoints.get_mut(&endpoint_desc) else {
+                    // If the endpoint doesn't exist, exit
+                    return Vec::new();
+                };
+                // If the lock state does not need to be changed, exit
+                if endpoint.volume_locked_muted.is_locked() == locked {
+                    return Vec::new();
+                }
+
+                if locked {
+                    if let Some(volume_locked_muted) = endpoint.volume_locked_muted.lock() {
+                        endpoint.volume_locked_muted = volume_locked_muted;
+                    } else {
+                        // Mixed mute states. Cannot lock the volume in this state, so exit
+                        return Vec::new();
+                    }
+
+                    let Some(nodes) = nodes else {
+                        // If the endpoint doesn't resolve then we have nothing else to do, so exit
+                        return Vec::new();
+                    };
+
+                    // If the volume of all nodes equals the endpoint volume and there are no
+                    // pending updates, then we're done, so exit
+                    if !endpoint.volume_pending
+                        && nodes
+                            .iter()
+                            .all(|node| node.channel_volumes.iter().all(|v| *v == endpoint.volume))
+                    {
+                        return Vec::new();
+                    }
+
+                    // Otherwise, change all of the volumes to the endpoint volume
+                    endpoint.volume_mixed = false;
+                    let messages: Vec<ToPipewireMessage> = nodes
+                        .iter()
+                        .map(|node| {
+                            ToPipewireMessage::NodeVolume(
+                                node.id,
+                                vec![endpoint.volume; node.channel_volumes.len()],
+                            )
+                        })
+                        .collect();
+                    if messages.len() > 0 {
+                        endpoint.volume_pending = true;
+                    }
+                    messages
+                } else {
+                    endpoint.volume_locked_muted = endpoint.volume_locked_muted.unlock();
+                    // No more changes are needed.
+                    Vec::new()
+                }
+            }
+        }
+    }
+
     // Diffs the Sonusmix state and the pipewire state. Returns a list of messages for Pipewire
     // to try and match the Sonusmix state as closely as possible, and marks any endpoints in the
     // Sonusmix state that cannot be found in the Pipewire graph as placeholders. This is only done
@@ -27,8 +186,8 @@ impl SonusmixState {
     fn diff(&mut self, graph: &Graph) -> Vec<ToPipewireMessage> {
         let endpoint_nodes = self.diff_nodes(graph);
         let mut messages = self.diff_properties(graph, &endpoint_nodes);
-
-        todo!()
+        messages.extend(self.diff_links(graph, &endpoint_nodes));
+        messages
     }
 
     /// Try to resolve each endpoint in the Sonusmix state to one or mode nodes in the Pipewire
@@ -370,7 +529,7 @@ impl SonusmixState {
                 source_nodes
                     .iter()
                     .map(|node| node.id)
-                    // Do any of the source nodes connect to any of the sink nodes?
+                    // Record the pairs where any source node connects to any sink node
                     .cartesian_product(sink_nodes.iter().map(|node| node.id))
                     .any(|ids| node_links.contains_key(&ids))
                     .then_some((*source_desc, *sink_desc))
@@ -396,6 +555,39 @@ struct Endpoint {
 }
 
 impl Endpoint {
+    fn new(descriptor: EndpointDescriptor) -> Self {
+        Self {
+            descriptor,
+            is_placeholder: false,
+            // String::new() does not allocate until data is added
+            display_name: String::new(),
+            volume: 0.0,
+            volume_mixed: false,
+            volume_locked_muted: VolumeLockMuteState::UnmutedUnlocked,
+            volume_pending: false,
+        }
+    }
+
+    fn with_display_name(mut self, display_name: String) -> Self {
+        self.display_name = display_name;
+        self
+    }
+
+    fn with_volume(mut self, volume: f32, volume_mixed: bool) -> Self {
+        self.volume = volume;
+        self.volume_mixed = volume_mixed;
+        self
+    }
+
+    fn with_mute_unlocked(mut self, muted: bool) -> Self {
+        self.volume_locked_muted = if muted {
+            VolumeLockMuteState::MutedUnlocked
+        } else {
+            VolumeLockMuteState::UnmutedLocked
+        };
+        self
+    }
+
     #[cfg(test)]
     pub fn new_test(descriptor: EndpointDescriptor) -> Self {
         Endpoint {
@@ -498,6 +690,35 @@ impl VolumeLockMuteState {
             Self::MuteMixed => None,
             Self::MutedLocked | Self::MutedUnlocked => Some(true),
             Self::UnmutedLocked | Self::UnmutedUnlocked => Some(false),
+        }
+    }
+
+    fn with_mute(self, muted: bool) -> Self {
+        match (muted, self) {
+            (true, Self::MutedLocked | Self::UnmutedLocked) => Self::MutedLocked,
+            (true, Self::MuteMixed | Self::MutedUnlocked | Self::UnmutedUnlocked) => {
+                Self::MutedUnlocked
+            }
+            (false, Self::MutedLocked | Self::UnmutedLocked) => Self::UnmutedLocked,
+            (false, Self::MuteMixed | Self::MutedUnlocked | Self::UnmutedUnlocked) => {
+                Self::UnmutedUnlocked
+            }
+        }
+    }
+
+    fn lock(self) -> Option<Self> {
+        match self {
+            Self::MuteMixed => None,
+            Self::MutedLocked | Self::MutedUnlocked => Some(Self::MutedLocked),
+            Self::UnmutedLocked | Self::UnmutedUnlocked => Some(Self::UnmutedLocked),
+        }
+    }
+
+    fn unlock(self) -> Self {
+        match self {
+            Self::MuteMixed => Self::MuteMixed,
+            Self::MutedLocked | Self::MutedUnlocked => Self::MutedUnlocked,
+            Self::UnmutedLocked | Self::UnmutedUnlocked => Self::UnmutedUnlocked,
         }
     }
 
