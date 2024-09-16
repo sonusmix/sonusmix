@@ -1,3 +1,7 @@
+mod reducer;
+
+pub use reducer::SonusmixReducer;
+
 use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
@@ -14,7 +18,7 @@ enum SonusmixMsg {
     SetVolumeLocked(EndpointDescriptor, bool),
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SonusmixState {
     active_sources: Vec<EndpointDescriptor>,
     active_sinks: Vec<EndpointDescriptor>,
@@ -540,7 +544,7 @@ impl SonusmixState {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Endpoint {
     descriptor: EndpointDescriptor,
     is_placeholder: bool,
@@ -780,62 +784,14 @@ struct GroupNodeId(Ulid);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct ApplicationId(Ulid);
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Application;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct DeviceId(Ulid);
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Device;
-
-mod reducer {
-    use std::sync::{mpsc, Arc};
-
-    use relm4::SharedState;
-
-    use crate::pipewire_api::{PortKind, ToPipewireMessage};
-
-    use super::{EndpointDescriptor, SonusmixState};
-
-    #[derive(Debug, Clone)]
-    pub enum SonusmixMsg {
-        AddEndpoint(EndpointDescriptor, PortKind),
-        RemoveEndpoint(EndpointDescriptor, PortKind),
-    }
-
-    pub struct SonusmixReducer {
-        pw_sender: mpsc::Sender<ToPipewireMessage>,
-        messages: SharedState<Option<SonusmixMsg>>,
-        state: SharedState<Arc<SonusmixState>>,
-    }
-
-    impl SonusmixReducer {
-        // pub fn emit(&self, msg: SonusmixMsg) {
-        //     let mut state = { self.state.read().as_ref().clone() };
-        // }
-
-        // pub fn subscribe_msg<Msg, F>(&self, sender: &relm4::Sender<Msg>, f: F) -> Arc<SonusmixState>
-        // where
-        //     F: Fn(&SonusmixMsg) -> Msg + 'static + Send + Sync,
-        //     Msg: Send + 'static,
-        // {
-        //     self.messages
-        //         .subscribe_optional(sender, move |msg| msg.as_ref().map(&f));
-        //     self.state.read().clone()
-        // }
-
-        // pub fn subscribe<Msg, F>(&self, sender: &relm4::Sender<Msg>, f: F) -> Arc<SonusmixState>
-        // where
-        //     F: Fn(Arc<SonusmixState>) -> Msg + 'static + Send + Sync,
-        //     Msg: Send + 'static,
-        // {
-        //     self.messages
-        //         .subscribe(sender, move |state| f(state.clone()));
-        //     self.state.read().clone()
-        // }
-    }
-}
 
 fn average_volumes<'a>(volumes: impl IntoIterator<Item = &'a f32>) -> f32 {
     let mut count: usize = 0;

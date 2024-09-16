@@ -26,16 +26,19 @@ pub struct PipewireHandle {
 }
 
 impl PipewireHandle {
-    pub fn init(update_fn: impl Fn(Graph) + Send + 'static) -> Result<Self> {
+    pub fn init(
+        to_pw_channel: (mpsc::Sender<ToPipewireMessage>, mpsc::Receiver<ToPipewireMessage>),
+        update_fn: impl Fn(Graph) + Send + 'static,
+    ) -> Result<Self> {
         // TODO: Decide if we actually need a dedicated channel and message type to communicate
         // from Pipewire to the main thread, or if the graph updates are enough
-        let (pipewire_thread_handle, pw_sender, pw_receiver) =
+        let (pipewire_thread_handle, pw_sender, from_pw_receiver) =
             init_mainloop(update_fn).context("Error initializing the Pipewire thread")?;
-        let (adapter_thread_handle, adapter_sender) = init_adapter(pw_sender);
+        let adapter_thread_handle = init_adapter(to_pw_channel.1, pw_sender);
         Ok(Self {
             pipewire_thread_handle: Some(pipewire_thread_handle),
             adapter_thread_handle: Some(adapter_thread_handle),
-            pipewire_sender: adapter_sender,
+            pipewire_sender: to_pw_channel.0,
         })
     }
 
@@ -115,12 +118,9 @@ struct PipewireChannelError(ToPipewireMessage);
 /// from async code. This might not be needed, but it'd probably be pretty annoying to debug if it
 /// turned out that the small block to send messages is actually a problem.
 fn init_adapter(
+    receiver: mpsc::Receiver<ToPipewireMessage>,
     pw_sender: pipewire::channel::Sender<ToPipewireMessage>,
-) -> (
-    thread::JoinHandle<Result<(), PipewireChannelError>>,
-    mpsc::Sender<ToPipewireMessage>,
-) {
-    let (sender, receiver) = mpsc::channel();
+) -> thread::JoinHandle<Result<(), PipewireChannelError>> {
     let handle = thread::spawn(move || loop {
         match receiver.recv().unwrap_or(ToPipewireMessage::Exit) {
             ToPipewireMessage::Exit => {
@@ -131,5 +131,5 @@ fn init_adapter(
             message => pw_sender.send(message).map_err(PipewireChannelError)?,
         }
     });
-    (handle, sender)
+    handle
 }

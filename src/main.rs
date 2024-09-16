@@ -15,8 +15,10 @@ fn main() {
 
     debug!("Hello, world!");
 
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _new_update_fn = state2::SonusmixReducer::init(tx.clone());
     let update_fn = state::link_pipewire();
-    let pipewire_handle = PipewireHandle::init(update_fn).expect("failed to connect to Pipewire");
+    let pipewire_handle = PipewireHandle::init((tx, rx), update_fn).expect("failed to connect to Pipewire");
 
     let app = RelmApp::new("sonusmix");
     relm4::set_global_css(include_str!("components/app.css"));
