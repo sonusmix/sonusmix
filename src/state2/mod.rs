@@ -10,7 +10,8 @@ use ulid::Ulid;
 
 use crate::pipewire_api::{Graph, Link as PwLink, Node as PwNode, PortKind, ToPipewireMessage};
 
-enum SonusmixMsg {
+#[derive(Debug, Clone, Copy)]
+pub enum SonusmixMsg {
     AddEphemeralNode(u32, PortKind),
     RemoveEndpoint(EndpointDescriptor),
     SetVolume(EndpointDescriptor, f32),
@@ -19,13 +20,13 @@ enum SonusmixMsg {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct SonusmixState {
-    active_sources: Vec<EndpointDescriptor>,
-    active_sinks: Vec<EndpointDescriptor>,
-    endpoints: HashMap<EndpointDescriptor, Endpoint>,
-    links: Vec<Link>,
-    applications: HashMap<ApplicationId, Application>,
-    devices: HashMap<DeviceId, Device>,
+pub struct SonusmixState {
+    pub active_sources: Vec<EndpointDescriptor>,
+    pub active_sinks: Vec<EndpointDescriptor>,
+    pub endpoints: HashMap<EndpointDescriptor, Endpoint>,
+    pub links: Vec<Link>,
+    pub applications: HashMap<ApplicationId, Application>,
+    pub devices: HashMap<DeviceId, Device>,
 }
 
 impl SonusmixState {
@@ -57,6 +58,11 @@ impl SonusmixState {
                     .with_mute_unlocked(node.mute);
 
                 self.endpoints.insert(descriptor, endpoint);
+                match kind {
+                    PortKind::Source => self.active_sources.push(descriptor),
+                    PortKind::Sink => self.active_sinks.push(descriptor),
+                }
+                // TODO: Handle initializing groups when we add them
 
                 Vec::new()
             }
@@ -65,6 +71,8 @@ impl SonusmixState {
                     // If the endpoint doesn't exist, exit
                     return Vec::new();
                 };
+                self.active_sources.retain(|endpoint| *endpoint != endpoint_desc);
+                self.active_sinks.retain(|endpoint| *endpoint != endpoint_desc);
 
                 // TODO: Handle cleanup specific to each endpoint type here. AFAIK the only type
                 // that needs extra handling will be group nodes (i.e., remove the backing
@@ -545,17 +553,17 @@ impl SonusmixState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Endpoint {
-    descriptor: EndpointDescriptor,
-    is_placeholder: bool,
-    display_name: String,
-    volume: f32,
+pub struct Endpoint {
+    pub descriptor: EndpointDescriptor,
+    pub is_placeholder: bool,
+    pub display_name: String,
+    pub volume: f32,
     /// This will be true if all of the channels across all of the nodes this endpoint represents
     /// are not set to the same volume. This state is allowed, but the user will be notified of it,
     /// as it could cause unexpected behavior otherwise.
-    volume_mixed: bool,
-    volume_locked_muted: VolumeLockMuteState,
-    volume_pending: bool,
+    pub volume_mixed: bool,
+    pub volume_locked_muted: VolumeLockMuteState,
+    pub volume_pending: bool,
 }
 
 impl Endpoint {
@@ -740,7 +748,7 @@ impl VolumeLockMuteState {
 /// Represents anything that can have audio routed to or from it in Sonusmix. This might be a
 /// single node, a group, or all sources or sinks belonging to an application or device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-enum EndpointDescriptor {
+pub enum EndpointDescriptor {
     /// Represents a single node that has no way to identify itself from others in the same
     /// application or device other than its ID. These can be selected once they are created, but
     /// cannot be persisted across Pipewire restarts. Theoretically they might be able to
