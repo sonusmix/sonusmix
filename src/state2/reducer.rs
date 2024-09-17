@@ -158,12 +158,13 @@ impl Drop for SonusmixReducer {
 
 #[cfg(test)]
 mod tests {
-    use super::init_reducer;
+    use super::SonusmixReducer;
 
     #[test]
     #[should_panic]
     fn panics_if_initialized_twice() {
-        init_reducer();
-        init_reducer();
+        let (tx, _) = std::sync::mpsc::channel();
+        SonusmixReducer::init(tx.clone());
+        SonusmixReducer::init(tx);
     }
 }
