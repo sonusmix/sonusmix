@@ -12,7 +12,7 @@ use crate::pipewire_api::{Graph, Link as PwLink, Node as PwNode, PortKind, ToPip
 
 #[derive(Debug, Clone, Copy)]
 pub enum SonusmixMsg {
-    AddEphemeralNode(u32, PortKind),
+    AddEndpoint(EndpointDescriptor),
     RemoveEndpoint(EndpointDescriptor),
     SetVolume(EndpointDescriptor, f32),
     SetMute(EndpointDescriptor, bool),
@@ -24,6 +24,7 @@ pub struct SonusmixState {
     pub active_sources: Vec<EndpointDescriptor>,
     pub active_sinks: Vec<EndpointDescriptor>,
     pub endpoints: HashMap<EndpointDescriptor, Endpoint>,
+    pub candidates: HashMap<EndpointDescriptor, String>,
     pub links: Vec<Link>,
     pub applications: HashMap<ApplicationId, Application>,
     pub devices: HashMap<DeviceId, Device>,
@@ -34,7 +35,7 @@ impl SonusmixState {
     /// to reflect those changes.
     fn update(&mut self, graph: &Graph, message: SonusmixMsg) -> Vec<ToPipewireMessage> {
         match message {
-            SonusmixMsg::AddEphemeralNode(id, kind) => {
+            SonusmixMsg::AddEndpoint(EndpointDescriptor::EphemeralNode(id, kind)) => {
                 let Some(node) = graph.nodes.get(&id).filter(|node| {
                     // Verify the node has ports of the correct kind
                     node.ports.iter().any(|port_id| {
@@ -66,13 +67,16 @@ impl SonusmixState {
 
                 Vec::new()
             }
+            SonusmixMsg::AddEndpoint(_) => todo!(),
             SonusmixMsg::RemoveEndpoint(endpoint_desc) => {
                 let Some(endpoint) = self.endpoints.remove(&endpoint_desc) else {
                     // If the endpoint doesn't exist, exit
                     return Vec::new();
                 };
-                self.active_sources.retain(|endpoint| *endpoint != endpoint_desc);
-                self.active_sinks.retain(|endpoint| *endpoint != endpoint_desc);
+                self.active_sources
+                    .retain(|endpoint| *endpoint != endpoint_desc);
+                self.active_sinks
+                    .retain(|endpoint| *endpoint != endpoint_desc);
 
                 // TODO: Handle cleanup specific to each endpoint type here. AFAIK the only type
                 // that needs extra handling will be group nodes (i.e., remove the backing
@@ -209,6 +213,27 @@ impl SonusmixState {
     /// hardware endpoints (only existing on the sonusmix state) are marked as a placeholder, so the UI can
     /// display the endpoint as deactivated.
     fn diff_nodes<'a>(&mut self, graph: &'a Graph) -> HashMap<EndpointDescriptor, Vec<&'a PwNode>> {
+        let mut remaining_nodes: HashSet<(u32, PortKind)> = graph
+            .nodes
+            .values()
+            .flat_map(|node| {
+                // Add the node as a source and a sink if it has source and sink ports, respectively
+                let has_ports = |kind| {
+                    node.ports.iter().any(|port_id| {
+                        graph
+                            .ports
+                            .get(port_id)
+                            .map(|port| port.kind == kind)
+                            .unwrap_or(false)
+                    })
+                };
+                [
+                    has_ports(PortKind::Source).then_some((node.id, PortKind::Source)),
+                    has_ports(PortKind::Sink).then_some((node.id, PortKind::Sink)),
+                ]
+            })
+            .flatten()
+            .collect();
         let mut endpoint_nodes = HashMap::new();
         // Keep a record of which endpoints are placeholders or not so that we're not mutating
         // while iterating
@@ -220,6 +245,16 @@ impl SonusmixState {
             .copied()
         {
             if let Some(nodes) = self.resolve_endpoint(endpoint, graph) {
+                // Mark the endpoint's nodes as seen
+                for node in &nodes {
+                    if endpoint.is_kind(PortKind::Source) {
+                        remaining_nodes.remove(&(node.id, PortKind::Source));
+                    }
+                    if endpoint.is_kind(PortKind::Sink) {
+                        remaining_nodes.remove(&(node.id, PortKind::Sink));
+                    }
+                }
+
                 endpoint_nodes.insert(endpoint, nodes);
                 placeholders.push((endpoint, false));
             } else {
@@ -233,6 +268,21 @@ impl SonusmixState {
         }
         // TODO: Check if any of the leftover Pipewire nodes correspond to group nodes. If so, tell
         // the backend to remove them.
+
+        // Any remaining nodes should be recorded as candidates.
+        // TODO: When there is more than just ephemeral nodes, add nodes as both ephemeral and
+        // persistent, as well as adding applications and devices. At that point it will likely be
+        // better to do this incrementally instead of rebuilding the candidates map every time.
+        self.candidates = remaining_nodes
+            .into_iter()
+            .filter_map(|(id, kind)| {
+                let node = graph.nodes.get(&id)?;
+                Some((
+                    EndpointDescriptor::EphemeralNode(id, kind),
+                    node.identifier.human_name().to_owned(),
+                ))
+            })
+            .collect();
 
         endpoint_nodes
     }
@@ -806,7 +856,7 @@ fn volumes_mixed<'a>(volumes: impl IntoIterator<Item = &'a f32>) -> bool {
     let mut iterator = volumes.into_iter();
     let first = match iterator.next() {
         Some(first) => first,
-        _ => return false
+        _ => return false,
     };
     if iterator.all(|x| x == first) {
         false
