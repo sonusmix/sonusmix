@@ -804,10 +804,10 @@ impl Endpoint {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-struct Link {
-    start: EndpointDescriptor,
-    end: EndpointDescriptor,
-    state: LinkState,
+pub struct Link {
+    pub start: EndpointDescriptor,
+    pub end: EndpointDescriptor,
+    pub state: LinkState,
     pending: bool,
 }
 
@@ -826,7 +826,7 @@ impl Link {
 /// Describes the state of the links between two endpoints. There is no "DisconnectedUnlocked"
 /// state, a link in that state will simply not be recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum LinkState {
+pub enum LinkState {
     /// Two endpoints have some links between them, but not all matching nodes/ports are connected.
     /// A user may not lock a link to this state (for now).
     PartiallyConnected,
@@ -842,14 +842,14 @@ enum LinkState {
 }
 
 impl LinkState {
-    fn is_locked(self) -> bool {
+    pub fn is_locked(self) -> bool {
         match self {
             Self::ConnectedLocked | Self::DisconnectedLocked => true,
             _ => false,
         }
     }
 
-    fn is_connected(self) -> Option<bool> {
+    pub fn is_connected(self) -> Option<bool> {
         match self {
             Self::PartiallyConnected => None,
             Self::ConnectedUnlocked | Self::ConnectedLocked => Some(true),

@@ -13,9 +13,7 @@ use super::connect_nodes::ConnectNodes;
 
 pub struct Node {
     endpoint: PwEndpoint,
-    list: PortKind,
     enabled: bool,
-    pw_sender: mpsc::Sender<ToPipewireMessage>,
     connect_nodes: Controller<ConnectNodes>,
 }
 
@@ -43,7 +41,7 @@ relm4::new_stateless_action!(RemoveAction, NodeMenuActionGroup, "remove");
 
 #[relm4::factory(pub)]
 impl FactoryComponent for Node {
-    type Init = (EndpointDescriptor, mpsc::Sender<ToPipewireMessage>);
+    type Init = EndpointDescriptor;
     type Input = NodeMsg;
     type Output = NodeOutput;
     type CommandOutput = ();
@@ -180,7 +178,7 @@ impl FactoryComponent for Node {
     }
 
     fn init_model(
-        (endpoint_desc, pw_sender): (EndpointDescriptor, mpsc::Sender<ToPipewireMessage>),
+        endpoint_desc: EndpointDescriptor,
         _index: &DynamicIndex,
         sender: FactorySender<Self>,
     ) -> Self {
@@ -189,18 +187,13 @@ impl FactoryComponent for Node {
             .get(&endpoint_desc)
             .expect("endpoint component failed to find matching endpoint on init")
             .clone();
-        let EndpointDescriptor::EphemeralNode(node_id, list) = endpoint.descriptor else {
-            todo!("migrate connect_nodes component");
-        };
 
         let connect_nodes = ConnectNodes::builder()
-            .launch((node_id, list, pw_sender.clone()))
+            .launch(endpoint.descriptor)
             .forward(sender.input_sender(), |msg| match msg {});
         Self {
             endpoint,
-            list,
             enabled: true,
-            pw_sender,
             connect_nodes,
         }
     }

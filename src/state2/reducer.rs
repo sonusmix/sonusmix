@@ -3,7 +3,8 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc,
     },
-    thread::JoinHandle, time::Instant,
+    thread::JoinHandle,
+    time::Instant,
 };
 
 use log::debug;
@@ -60,9 +61,10 @@ impl SonusmixReducer {
                             for message in messages {
                                 reducer.pw_sender.send(message);
                             }
+                            let state = (Arc::new(state), Some(msg));
                             {
                                 // Write the new version of the state
-                                *reducer.state.write() = (Arc::new(state), Some(msg));
+                                *reducer.state.write() = state;
                             }
                         }
                         ReducerMsg::GraphUpdate(new_graph) => {

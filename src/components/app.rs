@@ -17,7 +17,6 @@ use super::choose_node_dialog::{ChooseNodeDialog, ChooseNodeDialogMsg};
 use super::node::Node;
 
 pub struct App {
-    pw_sender: mpsc::Sender<ToPipewireMessage>,
     sonusmix_state: Arc<SonusmixState>,
     about_component: Option<Controller<AboutComponent>>,
     third_party_licenses_file: Option<TempPath>,
@@ -51,7 +50,7 @@ relm4::new_stateless_action!(
 #[relm4::component(pub)]
 impl Component for App {
     type CommandOutput = CommandMsg;
-    type Init = mpsc::Sender<ToPipewireMessage>;
+    type Init = ();
     type Input = Msg;
     type Output = ();
 
@@ -172,7 +171,7 @@ impl Component for App {
     }
 
     fn init(
-        pw_sender: mpsc::Sender<ToPipewireMessage>,
+        _init: (),
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -191,7 +190,6 @@ impl Component for App {
             .detach();
 
         let model = App {
-            pw_sender,
             about_component: None,
             third_party_licenses_file: None,
             sonusmix_state,
@@ -241,11 +239,11 @@ impl Component for App {
                         if endpoint.is_kind(PortKind::Source) {
                             self.sources
                                 .guard()
-                                .push_back((endpoint, self.pw_sender.clone()));
+                                .push_back(endpoint);
                         } else {
                             self.sinks
                                 .guard()
-                                .push_back((endpoint, self.pw_sender.clone()));
+                                .push_back(endpoint);
                         }
                         // TODO: Handle groups
                     }

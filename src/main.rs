@@ -28,7 +28,7 @@ fn main() {
     let app = RelmApp::new("sonusmix");
     relm4::set_global_css(include_str!("components/app.css"));
 
-    app.run::<App>(pipewire_handle.sender());
+    app.run::<App>(());
 
     // Comment the above lines and uncomment these to test without the frontend
     // let mut s = String::new();
