@@ -11,12 +11,11 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::{
-    pipewire_api::{Graph, Node, PortKind},
-    state::{subscribe_to_pipewire, SonusmixMsg, SonusmixState, SONUSMIX_STATE},
+    pipewire_api::{Node, PortKind},
+    state2::{Endpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState},
 };
 
 pub struct ChooseNodeDialog {
-    graph: Arc<Graph>,
     sonusmix_state: Arc<SonusmixState>,
     list: PortKind,
     nodes: FactoryVecDeque<ChooseNodeItem>,
@@ -26,7 +25,6 @@ pub struct ChooseNodeDialog {
 
 #[derive(Debug)]
 pub enum ChooseNodeDialogMsg {
-    UpdateGraph(Arc<Graph>),
     SonusmixState(Arc<SonusmixState>),
     Show(PortKind),
     #[doc(hidden)]
@@ -34,7 +32,7 @@ pub enum ChooseNodeDialogMsg {
     #[doc(hidden)]
     Close,
     #[doc(hidden)]
-    NodeChosen(u32),
+    NodeChosen(EndpointDescriptor),
     #[doc(hidden)]
     SearchUpdated(String),
 }
@@ -143,16 +141,14 @@ impl SimpleComponent for ChooseNodeDialog {
     }
 
     fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
-        let graph = subscribe_to_pipewire(sender.input_sender(), ChooseNodeDialogMsg::UpdateGraph);
         let sonusmix_state =
-            SONUSMIX_STATE.subscribe(sender.input_sender(), ChooseNodeDialogMsg::SonusmixState);
+            SonusmixReducer::subscribe(sender.input_sender(), ChooseNodeDialogMsg::SonusmixState);
 
         let nodes = FactoryVecDeque::builder()
             .launch(gtk::ListBox::new())
             .forward(sender.input_sender(), ChooseNodeDialogMsg::NodeChosen);
 
         let model = ChooseNodeDialog {
-            graph,
             sonusmix_state,
             list: PortKind::Source,
             nodes,
@@ -168,9 +164,6 @@ impl SimpleComponent for ChooseNodeDialog {
 
     fn update(&mut self, msg: ChooseNodeDialogMsg, _sender: ComponentSender<Self>) {
         match msg {
-            ChooseNodeDialogMsg::UpdateGraph(graph) => {
-                self.graph = graph;
-            }
             ChooseNodeDialogMsg::SonusmixState(state) => {
                 self.sonusmix_state = state;
                 self.update_inactive_nodes();
@@ -187,8 +180,8 @@ impl SimpleComponent for ChooseNodeDialog {
             ChooseNodeDialogMsg::Close => {
                 self.visible = false;
             }
-            ChooseNodeDialogMsg::NodeChosen(id) => {
-                SONUSMIX_STATE.emit(SonusmixMsg::AddNode(id, self.list));
+            ChooseNodeDialogMsg::NodeChosen(endpoint) => {
+                SonusmixReducer::emit(SonusmixMsg::AddEndpoint(endpoint));
             }
             ChooseNodeDialogMsg::SearchUpdated(search_text) => {
                 self.search_text = search_text;
@@ -211,56 +204,45 @@ impl ChooseNodeDialog {
         let mut factory = self.nodes.guard();
         factory.clear();
 
-        let mut nodes = self
-            .graph
-            .nodes
-            .values()
-            // Filter to only sources or sinks
-            .filter(|node| {
-                !active.contains(&node.id)
-                    && node.ports.iter().any(|id| {
-                        self.graph
-                            .ports
-                            .get(&id)
-                            .map(|port| port.kind == self.list)
-                            .unwrap_or(false)
-                    })
-            })
-            .cloned()
+        let mut endpoints = self
+            .sonusmix_state
+            .candidates
+            .iter()
+            .filter(|(endpoint, _)| endpoint.is_kind(self.list))
             .collect::<Vec<_>>();
 
-        nodes.sort_by(|a, b| a.identifier.human_name().cmp(&b.identifier.human_name()));
+        endpoints.sort_by(|a, b| a.1.cmp(&b.1));
         if !self.search_text.is_empty() {
             let fuzzy_matcher = SkimMatcherV2::default().smart_case();
             // Computing the match twice is simpler by far, and probably isn't a performance
             // issue. If it is, we can come back to this later.
-            nodes.retain(|node| {
+            endpoints.retain(|endpoint| {
                 fuzzy_matcher
-                    .fuzzy_match(&node.identifier.human_name(), &self.search_text)
+                    .fuzzy_match(endpoint.1, &self.search_text)
                     .is_some()
             });
-            nodes.sort_by_cached_key(|node| {
+            endpoints.sort_by_cached_key(|endpoint| {
                 std::cmp::Reverse(
                     fuzzy_matcher
-                        .fuzzy_match(&node.identifier.human_name(), &self.search_text)
+                        .fuzzy_match(endpoint.1, &self.search_text)
                         .expect("No non-matching nodes should be remaining in the vec"),
                 )
             })
         }
 
-        for node in nodes {
-            factory.push_back(node);
+        for (endpoint, name) in endpoints {
+            factory.push_back((*endpoint, name.clone()));
         }
     }
 }
 
-struct ChooseNodeItem(Node);
+struct ChooseNodeItem(EndpointDescriptor, String);
 
 #[relm4::factory]
 impl FactoryComponent for ChooseNodeItem {
-    type Init = Node;
+    type Init = (EndpointDescriptor, String);
     type Input = Infallible;
-    type Output = u32;
+    type Output = EndpointDescriptor;
     type CommandOutput = ();
     type ParentWidget = gtk::ListBox;
 
@@ -274,18 +256,22 @@ impl FactoryComponent for ChooseNodeItem {
                 gtk::Button {
                     set_has_frame: false,
                     set_icon_name: "list-add-symbolic",
-                    connect_clicked[sender, id = self.0.id] => move |_| {
+                    connect_clicked[sender, id = self.0] => move |_| {
                         let _ = sender.output(id);
                     },
                 },
                 gtk::Label {
-                    set_label: &self.0.identifier.human_name(),
+                    set_label: &self.1,
                 }
             }
         }
     }
 
-    fn init_model(node: Node, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
-        Self(node)
+    fn init_model(
+        (endpoint, name): (EndpointDescriptor, String),
+        _index: &DynamicIndex,
+        _sender: FactorySender<Self>,
+    ) -> Self {
+        Self(endpoint, name)
     }
 }

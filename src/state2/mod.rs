@@ -813,7 +813,7 @@ pub enum EndpointDescriptor {
 }
 
 impl EndpointDescriptor {
-    fn is_kind(self, kind: PortKind) -> bool {
+    pub fn is_kind(self, kind: PortKind) -> bool {
         match self {
             Self::GroupNode(_) => true,
             Self::EphemeralNode(_, kind_)

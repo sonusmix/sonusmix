@@ -1,17 +1,16 @@
 use std::{
-    cell::OnceCell,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc, OnceLock,
+        mpsc, Arc,
     },
     thread::JoinHandle,
 };
 
 use relm4::SharedState;
 
-use crate::pipewire_api::{Graph, PortKind, ToPipewireMessage};
+use crate::pipewire_api::{Graph, ToPipewireMessage};
 
-use super::{EndpointDescriptor, SonusmixMsg, SonusmixState};
+use super::{SonusmixMsg, SonusmixState};
 
 static SONUSMIX_REDUCER: once_cell::sync::OnceCell<SonusmixReducer> =
     once_cell::sync::OnceCell::new();
@@ -26,8 +25,7 @@ pub struct SonusmixReducer {
     pw_sender: mpsc::Sender<ToPipewireMessage>,
     reducer_sender: mpsc::Sender<ReducerMsg>,
     thread_handle: JoinHandle<()>,
-    messages: SharedState<Option<SonusmixMsg>>,
-    state: SharedState<Arc<SonusmixState>>,
+    state: SharedState<(Arc<SonusmixState>, Option<SonusmixMsg>)>,
 }
 
 impl SonusmixReducer {
@@ -54,26 +52,26 @@ impl SonusmixReducer {
             for message in rx {
                 match message {
                     ReducerMsg::Update(msg) => {
-                        let mut state = { reducer.state.read().as_ref().clone() };
+                        let mut state = { reducer.state.read().0.as_ref().clone() };
                         let messages = state.update(&graph, msg);
                         for message in messages {
                             reducer.pw_sender.send(message);
                         }
                         {
                             // Write the new version of the state
-                            *reducer.state.write() = Arc::new(state);
+                            *reducer.state.write() = (Arc::new(state), Some(msg));
                         }
                     }
                     ReducerMsg::GraphUpdate(new_graph) => {
                         graph = new_graph;
-                        let mut state = { reducer.state.read().as_ref().clone() };
+                        let mut state = { reducer.state.read().0.as_ref().clone() };
                         let messages = state.diff(&graph);
                         for message in messages {
                             reducer.pw_sender.send(message);
                         }
                         {
                             // Write the new version of the state
-                            *reducer.state.write() = Arc::new(state);
+                            *reducer.state.write() = (Arc::new(state), None);
                         }
                     }
                     ReducerMsg::Exit => {
@@ -89,7 +87,6 @@ impl SonusmixReducer {
             pw_sender,
             reducer_sender: tx,
             thread_handle: reducer_handle,
-            messages: SharedState::new(),
             // TODO: initialize from disk
             state: SharedState::new(),
         });
@@ -108,28 +105,6 @@ impl SonusmixReducer {
         }
     }
 
-    /// Subscribe to receive rebroadcasted state update messages. Note that only changes made by
-    /// the frontend are reflected in the state update messages, as the reducer does not attempt to
-    /// convert Pipewire updates into update messages.
-    /// # Returns
-    /// Returns the current state.
-    /// # Panics
-    /// This function will panic if it is called before the reducer has been initialized.
-    pub fn subscribe_msg<Msg, F>(sender: &relm4::Sender<Msg>, f: F) -> Arc<SonusmixState>
-    where
-        F: Fn(&SonusmixMsg) -> Msg + 'static + Send + Sync,
-        Msg: Send + 'static,
-    {
-        let reducer = SONUSMIX_REDUCER
-            .get()
-            .expect("The reducer must be initialized before subscribing to it");
-
-        reducer
-            .messages
-            .subscribe_optional(sender, move |msg| msg.as_ref().map(&f));
-        reducer.state.read().clone()
-    }
-
     /// Subscribe to receive updates to the Sonusmix state.
     /// # Returns
     /// Returns the current state.
@@ -145,8 +120,31 @@ impl SonusmixReducer {
             .expect("The reducer must be initialized before subscribing to it");
         reducer
             .state
-            .subscribe(sender, move |state| f(state.clone()));
-        reducer.state.read().clone()
+            .subscribe(sender, move |(state, _)| f(state.clone()));
+        reducer.state.read().0.clone()
+    }
+
+    /// Subscribe to receive updates to the Sonusmix state, along with a copy of the message that
+    /// caused the update, if there was one. Note that only changes made by the frontend will
+    /// include a state update message, as the reducer does not attempt to convert Pipewire updates
+    /// into state update messages.
+    /// # Returns
+    /// Returns the current state.
+    /// # Panics
+    /// This function will panic if it is called before the reducer has been initialized.
+    pub fn subscribe_msg<Msg, F>(sender: &relm4::Sender<Msg>, f: F) -> Arc<SonusmixState>
+    where
+        F: Fn(Arc<SonusmixState>, Option<SonusmixMsg>) -> Msg + 'static + Send + Sync,
+        Msg: Send + 'static,
+    {
+        let reducer = SONUSMIX_REDUCER
+            .get()
+            .expect("The reducer must be initialized before subscribing to it");
+
+        reducer
+            .state
+            .subscribe(sender, move |(state, msg)| f(state.clone(), *msg));
+        reducer.state.read().0.clone()
     }
 }
 

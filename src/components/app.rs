@@ -10,7 +10,7 @@ use relm4::prelude::*;
 use tempfile::TempPath;
 
 use crate::pipewire_api::{Graph, PortKind, ToPipewireMessage};
-use crate::state::{subscribe_to_pipewire, SonusmixMsg, SONUSMIX_STATE};
+use crate::state2::{EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState};
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_node_dialog::{ChooseNodeDialog, ChooseNodeDialogMsg};
@@ -18,7 +18,7 @@ use super::node::Node;
 
 pub struct App {
     pw_sender: mpsc::Sender<ToPipewireMessage>,
-    graph: Arc<Graph>,
+    sonusmix_state: Arc<SonusmixState>,
     about_component: Option<Controller<AboutComponent>>,
     third_party_licenses_file: Option<TempPath>,
     sources: FactoryVecDeque<Node>,
@@ -29,8 +29,7 @@ pub struct App {
 #[derive(Debug)]
 pub enum Msg {
     Ignore,
-    UpdateGraph(Arc<Graph>),
-    SonusmixMsg(SonusmixMsg),
+    UpdateState(Arc<SonusmixState>, Option<SonusmixMsg>),
     OpenAbout,
     OpenThirdPartyLicenses,
     ChooseNode(PortKind),
@@ -177,8 +176,7 @@ impl Component for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let graph = subscribe_to_pipewire(sender.input_sender(), Msg::UpdateGraph);
-        SONUSMIX_STATE.subscribe_msg(sender.input_sender(), |msg| Msg::SonusmixMsg(msg.clone()));
+        let sonusmix_state = SonusmixReducer::subscribe_msg(sender.input_sender(), Msg::UpdateState);
 
         let sources = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -195,7 +193,7 @@ impl Component for App {
             pw_sender,
             about_component: None,
             third_party_licenses_file: None,
-            graph,
+            sonusmix_state,
             sources,
             sinks,
             choose_node_dialog,
@@ -230,37 +228,42 @@ impl Component for App {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
             Msg::Ignore => {}
-            Msg::UpdateGraph(graph) => {
-                self.graph = graph;
+            Msg::UpdateState(state, msg) => {
+                self.sonusmix_state = state;
                 // Update the choose node dialog if it's open
                 if let Some(list) = self.choose_node_dialog.model().active_list() {
                     sender.input(Msg::ChooseNode(list));
                 }
-            }
-            Msg::SonusmixMsg(s_msg) => match s_msg {
-                SonusmixMsg::AddNode(id, list) => match list {
-                    PortKind::Source => {
-                        self.sources
-                            .guard()
-                            .push_back((id, list, self.pw_sender.clone()));
+
+                match msg {
+                    Some(SonusmixMsg::AddEndpoint(EndpointDescriptor::EphemeralNode(endpoint, list))) => match list {
+                        PortKind::Source => {
+                            self.sources
+                                .guard()
+                                .push_back((endpoint, list, self.pw_sender.clone()));
+                        }
+                        PortKind::Sink => {
+                            self.sinks
+                                .guard()
+                                .push_back((endpoint, list, self.pw_sender.clone()));
+                        }
+                    },
+                    Some(SonusmixMsg::RemoveEndpoint(EndpointDescriptor::EphemeralNode(
+                        endpoint,
+                        list,
+                    ))) => {
+                        let nodes = match list {
+                            PortKind::Source => &mut self.sources,
+                            PortKind::Sink => &mut self.sinks,
+                        };
+                        let index = nodes.iter().position(|node| node.id() == endpoint);
+                        if let Some(index) = index {
+                            nodes.guard().remove(index);
+                        }
                     }
-                    PortKind::Sink => {
-                        self.sinks
-                            .guard()
-                            .push_back((id, list, self.pw_sender.clone()));
-                    }
-                },
-                SonusmixMsg::RemoveNode(id, list) => {
-                    let nodes = match list {
-                        PortKind::Source => &mut self.sources,
-                        PortKind::Sink => &mut self.sinks,
-                    };
-                    let index = nodes.iter().position(|node| node.id() == id);
-                    if let Some(index) = index {
-                        nodes.guard().remove(index);
-                    }
+                    _ => {}
                 }
-            },
+            }
             Msg::OpenAbout => {
                 self.about_component = Some(AboutComponent::builder().launch(()).detach());
             }
