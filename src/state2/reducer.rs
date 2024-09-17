@@ -3,9 +3,10 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc,
     },
-    thread::JoinHandle,
+    thread::JoinHandle, time::Instant,
 };
 
+use log::debug;
 use relm4::SharedState;
 
 use crate::pipewire_api::{Graph, ToPipewireMessage};
@@ -45,41 +46,48 @@ impl SonusmixReducer {
         );
 
         let (tx, rx) = mpsc::channel::<ReducerMsg>();
-        let reducer_handle = std::thread::spawn(move || {
-            let reducer = SONUSMIX_REDUCER.wait();
-            let mut graph = Graph::default();
+        let reducer_handle = std::thread::Builder::new()
+            .name("state-diff".to_string())
+            .spawn(move || {
+                let reducer = SONUSMIX_REDUCER.wait();
+                let mut graph = Graph::default();
 
-            for message in rx {
-                match message {
-                    ReducerMsg::Update(msg) => {
-                        let mut state = { reducer.state.read().0.as_ref().clone() };
-                        let messages = state.update(&graph, msg);
-                        for message in messages {
-                            reducer.pw_sender.send(message);
+                for message in rx {
+                    match message {
+                        ReducerMsg::Update(msg) => {
+                            let mut state = { reducer.state.read().0.as_ref().clone() };
+                            let messages = state.update(&graph, msg);
+                            for message in messages {
+                                reducer.pw_sender.send(message);
+                            }
+                            {
+                                // Write the new version of the state
+                                *reducer.state.write() = (Arc::new(state), Some(msg));
+                            }
                         }
-                        {
-                            // Write the new version of the state
-                            *reducer.state.write() = (Arc::new(state), Some(msg));
+                        ReducerMsg::GraphUpdate(new_graph) => {
+                            graph = new_graph;
+                            let mut state = { reducer.state.read().0.as_ref().clone() };
+                            let t0 = Instant::now();
+                            let messages = state.diff(&graph);
+                            let t1 = Instant::now();
+                            debug!("graph update, time: {:?}, messages: {messages:?}", t1 - t0);
+                            for message in messages {
+                                reducer.pw_sender.send(message);
+                            }
+                            let state = (Arc::new(state), None);
+                            {
+                                // Write the new version of the state
+                                *reducer.state.write() = state;
+                            }
                         }
-                    }
-                    ReducerMsg::GraphUpdate(new_graph) => {
-                        graph = new_graph;
-                        let mut state = { reducer.state.read().0.as_ref().clone() };
-                        let messages = state.diff(&graph);
-                        for message in messages {
-                            reducer.pw_sender.send(message);
+                        ReducerMsg::Exit => {
+                            break;
                         }
-                        {
-                            // Write the new version of the state
-                            *reducer.state.write() = (Arc::new(state), None);
-                        }
-                    }
-                    ReducerMsg::Exit => {
-                        break;
                     }
                 }
-            }
-        });
+            })
+            .expect("failed to spawn state diff thread");
 
         // TODO: Use the result value from this instead of the AtomicBool to guarantee the reducer
         // is only initialzed once. This may require sending an exit message to the thread, though.
