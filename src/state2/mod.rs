@@ -52,6 +52,7 @@ impl SonusmixState {
                 let descriptor = EndpointDescriptor::EphemeralNode(id, kind);
                 let endpoint = Endpoint::new(descriptor)
                     .with_display_name(node.identifier.human_name().to_owned())
+                    .with_icon_name(node.identifier.icon_name().to_string())
                     .with_volume(
                         average_volumes(&node.channel_volumes),
                         !node.channel_volumes.iter().all_equal(),
@@ -598,6 +599,7 @@ pub struct Endpoint {
     pub descriptor: EndpointDescriptor,
     pub is_placeholder: bool,
     pub display_name: String,
+    pub icon_name: String,
     pub volume: f32,
     /// This will be true if all of the channels across all of the nodes this endpoint represents
     /// are not set to the same volume. This state is allowed, but the user will be notified of it,
@@ -614,6 +616,7 @@ impl Endpoint {
             is_placeholder: false,
             // String::new() does not allocate until data is added
             display_name: String::new(),
+            icon_name: String::new(),
             volume: 0.0,
             volume_mixed: false,
             volume_locked_muted: VolumeLockMuteState::UnmutedUnlocked,
@@ -623,6 +626,11 @@ impl Endpoint {
 
     fn with_display_name(mut self, display_name: String) -> Self {
         self.display_name = display_name;
+        self
+    }
+
+    fn with_icon_name(mut self, icon_name: String) -> Self {
+        self.icon_name = icon_name;
         self
     }
 
@@ -647,6 +655,7 @@ impl Endpoint {
             descriptor,
             is_placeholder: false,
             display_name: "TESTING ENDPOINT".to_string(),
+            icon_name: "applications-development".to_string(),
             volume: 0.0,
             volume_mixed: false,
             volume_locked_muted: VolumeLockMuteState::UnmutedUnlocked,
@@ -716,7 +725,7 @@ impl LinkState {
 /// it represents must all be muted or all be unmuted. They may have different volumes, though;
 /// they will all be set to the overall average volume when they are locked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum VolumeLockMuteState {
+pub enum VolumeLockMuteState {
     /// Some of the nodes this endpoint represents are muted, and some are not. A user may not
     /// input this state, and may not lock the volume in this state.
     MuteMixed,
@@ -731,14 +740,14 @@ enum VolumeLockMuteState {
 }
 
 impl VolumeLockMuteState {
-    fn is_locked(self) -> bool {
+    pub fn is_locked(self) -> bool {
         match self {
             Self::MutedLocked | Self::UnmutedLocked => true,
             _ => false,
         }
     }
 
-    fn is_muted(self) -> Option<bool> {
+    pub fn is_muted(self) -> Option<bool> {
         match self {
             Self::MuteMixed => None,
             Self::MutedLocked | Self::MutedUnlocked => Some(true),
@@ -982,6 +991,7 @@ mod tests {
             active_sources: Vec::from([sonusmix_node]),
             active_sinks: Vec::new(),
             endpoints: HashMap::from([(sonusmix_node, sonusmix_node_endpoint); 1]),
+            candidates: HashMap::new(),
             links: Vec::new(),
             applications: HashMap::new(),
             devices: HashMap::new(),
@@ -1069,6 +1079,7 @@ mod tests {
                 active_sources,
                 active_sinks,
                 endpoints,
+                candidates: HashMap::new(),
                 links,
                 applications: HashMap::new(),
                 devices: HashMap::new(),

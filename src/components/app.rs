@@ -176,7 +176,8 @@ impl Component for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let sonusmix_state = SonusmixReducer::subscribe_msg(sender.input_sender(), Msg::UpdateState);
+        let sonusmix_state =
+            SonusmixReducer::subscribe_msg(sender.input_sender(), Msg::UpdateState);
 
         let sources = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -236,29 +237,31 @@ impl Component for App {
                 }
 
                 match msg {
-                    Some(SonusmixMsg::AddEndpoint(EndpointDescriptor::EphemeralNode(endpoint, list))) => match list {
-                        PortKind::Source => {
+                    Some(SonusmixMsg::AddEndpoint(endpoint)) => {
+                        if endpoint.is_kind(PortKind::Source) {
                             self.sources
                                 .guard()
-                                .push_back((endpoint, list, self.pw_sender.clone()));
-                        }
-                        PortKind::Sink => {
+                                .push_back((endpoint, self.pw_sender.clone()));
+                        } else {
                             self.sinks
                                 .guard()
-                                .push_back((endpoint, list, self.pw_sender.clone()));
+                                .push_back((endpoint, self.pw_sender.clone()));
                         }
-                    },
-                    Some(SonusmixMsg::RemoveEndpoint(EndpointDescriptor::EphemeralNode(
-                        endpoint,
-                        list,
-                    ))) => {
-                        let nodes = match list {
-                            PortKind::Source => &mut self.sources,
-                            PortKind::Sink => &mut self.sinks,
+                        // TODO: Handle groups
+                    }
+                    Some(SonusmixMsg::RemoveEndpoint(endpoint_desc)) => {
+                        let endpoints = if endpoint_desc.is_kind(PortKind::Source) {
+                            &mut self.sources
+                        } else {
+                            &mut self.sinks
                         };
-                        let index = nodes.iter().position(|node| node.id() == endpoint);
+                        // TODO: Handle groups
+
+                        let index = endpoints
+                            .iter()
+                            .position(|endpoint| endpoint.id() == endpoint_desc);
                         if let Some(index) = index {
-                            nodes.guard().remove(index);
+                            endpoints.guard().remove(index);
                         }
                     }
                     _ => {}

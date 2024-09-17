@@ -6,16 +6,13 @@ use relm4::factory::FactoryView;
 use relm4::prelude::*;
 use relm4::{actions::RelmActionGroup, gtk::prelude::*};
 
-use crate::state::{SonusmixMsg, SONUSMIX_STATE};
-use crate::{
-    pipewire_api::{Graph, Node as PwNode, PortKind, ToPipewireMessage},
-    state::subscribe_to_pipewire,
-};
+use crate::pipewire_api::{Graph, Node as PwNode, PortKind, ToPipewireMessage};
+use crate::state2::{Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState};
 
 use super::connect_nodes::ConnectNodes;
 
 pub struct Node {
-    node: PwNode,
+    endpoint: PwEndpoint,
     list: PortKind,
     enabled: bool,
     pw_sender: mpsc::Sender<ToPipewireMessage>,
@@ -23,14 +20,14 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn id(&self) -> u32 {
-        self.node.id
+    pub fn id(&self) -> EndpointDescriptor {
+        self.endpoint.descriptor
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum NodeMsg {
-    UpdateGraph(Arc<Graph>),
+    UpdateState(Arc<SonusmixState>),
     #[doc(hidden)]
     Volume(f64),
     ToggleMute,
@@ -46,7 +43,7 @@ relm4::new_stateless_action!(RemoveAction, NodeMenuActionGroup, "remove");
 
 #[relm4::factory(pub)]
 impl FactoryComponent for Node {
-    type Init = (u32, PortKind, mpsc::Sender<ToPipewireMessage>);
+    type Init = (EndpointDescriptor, mpsc::Sender<ToPipewireMessage>);
     type Input = NodeMsg;
     type Output = NodeOutput;
     type CommandOutput = ();
@@ -81,7 +78,7 @@ impl FactoryComponent for Node {
                         #[watch]
                         set_pixel_size: icon_view.pixel_size().max(24),
                         #[watch]
-                        set_icon_name: Some(self.node.identifier.icon_name()),
+                        set_icon_name: Some(&self.endpoint.icon_name),
                     },
 
                     gtk::Label {
@@ -90,15 +87,18 @@ impl FactoryComponent for Node {
                         set_ellipsize: gtk::pango::EllipsizeMode::End,
 
                         #[watch]
-                        set_label: &self.node.identifier.human_name(),
+                        set_label: &self.endpoint.display_name,
                         #[watch]
-                        set_tooltip: &self.node.identifier.human_name(),
+                        set_tooltip: &self.endpoint.display_name,
                         set_css_classes: &["heading"],
                     },
 
                     gtk::Label {
                         #[watch]
-                        set_label: &format!("id: {}", self.node.id),
+                        set_label: &match self.endpoint.descriptor {
+                            EndpointDescriptor::EphemeralNode(id, _) => format!("id: {}", id),
+                            _ => String::new(),
+                        }
                     }
                 },
                 gtk::Label {
@@ -107,15 +107,16 @@ impl FactoryComponent for Node {
                     set_css_classes: &["caption", "dim-label"],
 
                     #[watch]
-                    set_label: &self.node.identifier.details().unwrap_or_default(),
-                    #[watch]
-                    set_tooltip?: self.node.identifier.details(),
+                    // set_label: &self.endpoint.identifier.details().unwrap_or_default(),
+                    set_label: "",
+                    // #[watch]
+                    // set_tooltip?: self.endpoint.identifier.details(),
                 },
                 gtk::Scale {
                     set_range: (0.0, 100.0),
                     #[watch]
                     #[block_signal(volume_handler)]
-                    set_value: calculate_slider_value(&self.node.channel_volumes),
+                    set_value: volume_to_slider(self.endpoint.volume),
                     set_draw_value: true,
                     set_format_value_func => move |_, value| format!("{value:.0}%"),
 
@@ -150,9 +151,17 @@ impl FactoryComponent for Node {
                     gtk::Button {
                         set_label: "M",
                         #[watch]
-                        set_tooltip: self.node.mute.then_some("Unmute").unwrap_or("Mute"),
+                        set_tooltip: if self.endpoint
+                            .volume_locked_muted
+                            .is_muted()
+                            .unwrap_or(false)
+                        { "Unmute" } else { "Mute" },
                         #[watch]
-                        set_css_classes: self.node.mute.then_some(&["mute-node-button-active", "text-button"]).unwrap_or(&["", "text-button"]),
+                        set_css_classes: if self.endpoint
+                            .volume_locked_muted
+                            .is_muted()
+                            .unwrap_or(false)
+                        { &["mute-node-button-active", "text-button"] } else { &["", "text-button"] },
                         connect_clicked => NodeMsg::ToggleMute,
                     },
                     gtk::Button {
@@ -171,22 +180,24 @@ impl FactoryComponent for Node {
     }
 
     fn init_model(
-        (id, list, pw_sender): (u32, PortKind, mpsc::Sender<ToPipewireMessage>),
+        (endpoint_desc, pw_sender): (EndpointDescriptor, mpsc::Sender<ToPipewireMessage>),
         _index: &DynamicIndex,
         sender: FactorySender<Self>,
     ) -> Self {
-        let node = subscribe_to_pipewire(sender.input_sender(), NodeMsg::UpdateGraph)
-            .nodes
-            .get(&id)
-            .expect("node component failed to find matching node on init")
+        let endpoint = SonusmixReducer::subscribe(sender.input_sender(), NodeMsg::UpdateState)
+            .endpoints
+            .get(&endpoint_desc)
+            .expect("endpoint component failed to find matching endpoint on init")
             .clone();
-        let is_muted = node.mute;
+        let EndpointDescriptor::EphemeralNode(node_id, list) = endpoint.descriptor else {
+            todo!("migrate connect_nodes component");
+        };
 
         let connect_nodes = ConnectNodes::builder()
-            .launch((node.id, list, pw_sender.clone()))
+            .launch((node_id, list, pw_sender.clone()))
             .forward(sender.input_sender(), |msg| match msg {});
         Self {
-            node,
+            endpoint,
             list,
             enabled: true,
             pw_sender,
@@ -218,43 +229,29 @@ impl FactoryComponent for Node {
 
     fn update(&mut self, msg: NodeMsg, _sender: FactorySender<Self>) {
         match msg {
-            NodeMsg::UpdateGraph(graph) => {
-                if let Some(node) = graph.nodes.get(&self.node.id) {
-                    self.node = node.clone();
-                    self.enabled = true;
-                } else {
-                    self.enabled = false;
-                    // TODO: Handle what (else) happens if the node is not found
+            NodeMsg::UpdateState(state) => {
+                if let Some(endpoint) = state.endpoints.get(&self.endpoint.descriptor) {
+                    self.endpoint = endpoint.clone();
                 }
             }
             NodeMsg::Volume(volume) => {
-                self.pw_sender.send(ToPipewireMessage::NodeVolume(
-                    self.node.id,
-                    slider_to_channel_volumes(volume, self.node.channel_volumes.len()),
-                ));
+                SonusmixReducer::emit(SonusmixMsg::SetVolume(self.endpoint.descriptor, slider_to_volume(volume)))
             }
             NodeMsg::ToggleMute => {
-                let mute = match self.node.mute {
-                    true => false,
-                    false => true,
-                };
-                self.pw_sender
-                    .send(ToPipewireMessage::NodeMute(self.node.id, mute));
+                let mute = self.endpoint.volume_locked_muted.is_muted().map(|mute| !mute).unwrap_or(true);
+                SonusmixReducer::emit(SonusmixMsg::SetMute(self.endpoint.descriptor, mute));
             }
             NodeMsg::Remove => {
-                SONUSMIX_STATE.emit(SonusmixMsg::RemoveNode(self.node.id, self.list));
+                SonusmixReducer::emit(SonusmixMsg::RemoveEndpoint(self.endpoint.descriptor));
             }
         }
     }
 }
 
-fn calculate_slider_value(channel_volumes: &Vec<f32>) -> f64 {
-    ((channel_volumes.iter().sum::<f32>() / channel_volumes.len().max(1) as f32) as f64)
-        .powf(1.0 / 3.0)
-        * 100.0
+fn volume_to_slider(volume: f32) -> f64 {
+    (volume.powf(1.0 / 3.0) * 100.0) as f64
 }
 
-fn slider_to_channel_volumes(volume: f64, num_channels: usize) -> Vec<f32> {
-    let volume_value = (volume / 100.0).powf(3.0) as f32;
-    vec![volume_value; num_channels]
+fn slider_to_volume(volume: f64) -> f32 {
+    (volume as f32 / 100.0).powf(3.0) as f32
 }
