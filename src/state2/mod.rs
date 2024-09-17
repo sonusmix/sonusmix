@@ -17,6 +17,14 @@ pub enum SonusmixMsg {
     SetVolume(EndpointDescriptor, f32),
     SetMute(EndpointDescriptor, bool),
     SetVolumeLocked(EndpointDescriptor, bool),
+    Link(EndpointDescriptor, EndpointDescriptor),
+    RemoveLink(EndpointDescriptor, EndpointDescriptor),
+    /// Set if a link is supposed to be locked or not.
+    ///
+    /// - `Some(true)` = lock in connected state
+    /// - `Some(false)` = lock in disconnected state
+    /// - `None` = No lock
+    SetLinkLocked(EndpointDescriptor, EndpointDescriptor, Option<bool>),
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -135,6 +143,111 @@ impl SonusmixState {
                     messages
                 } else {
                     Vec::new()
+                }
+            }
+            SonusmixMsg::Link(source, sink) => {
+                if source.is_kind(PortKind::Sink) || sink.is_kind(PortKind::Source) {
+                    panic!("Wrong direction in link");
+                }
+                // check if link already exists
+                if self
+                    .links
+                    .iter()
+                    .find(|link| link.start == source && link.end == sink)
+                    .is_some()
+                {
+                    return Vec::new();
+                }
+                let Some(source_nodes) = self.resolve_endpoint(source, graph) else {
+                    log::warn!("There is no source to connect from");
+                    return Vec::new();
+                };
+                let Some(sink_nodes) = self.resolve_endpoint(sink, graph) else {
+                    log::warn!("There is no sink to connect to");
+                    return Vec::new();
+                };
+
+                let mut messages: Vec<ToPipewireMessage> = Vec::new();
+
+                for source in source_nodes.iter() {
+                    for sink in sink_nodes.iter() {
+                        messages.push(ToPipewireMessage::CreateNodeLinks {
+                            start_id: source.id,
+                            end_id: sink.id,
+                        })
+                    }
+                }
+
+                let link = Link {
+                    start: source,
+                    end: sink,
+                    state: LinkState::ConnectedUnlocked,
+                    pending: true,
+                };
+                self.links.push(link);
+
+                messages
+            }
+            SonusmixMsg::RemoveLink(source, sink) => {
+                if source.is_kind(PortKind::Sink) || sink.is_kind(PortKind::Source) {
+                    panic!("Wrong direction in link");
+                }
+                let Some((link_position, link)) = self
+                    .links
+                    .iter_mut()
+                    .find_position(|link| link.start == source && link.end == sink)
+                else {
+                    log::error!("Link does not exist");
+                    return Vec::new();
+                };
+
+                if link.state != LinkState::DisconnectedLocked {
+                    // The link will be removed with the next graph update.
+                    link.state = LinkState::ConnectedUnlocked;
+                    // TODO: Should links be removed when removing from sonusmix state?
+                    return self.remove_pipewire_node_links(graph, source, sink);
+                } else {
+                    self.links.remove(link_position);
+                }
+                Vec::new()
+            }
+            SonusmixMsg::SetLinkLocked(source, sink, locked) => {
+                if source.is_kind(PortKind::Sink) || sink.is_kind(PortKind::Source) {
+                    panic!("Wrong direction in link");
+                }
+                let Some(link) = self
+                    .links
+                    .iter_mut()
+                    .find(|link| link.start == source && link.end == sink)
+                else {
+                    log::error!("Link does not exist");
+                    return Vec::new();
+                };
+
+                if (locked == Some(true) || locked == Some(false))
+                    && link.state == LinkState::PartiallyConnected
+                {
+                    // If trying to lock in any way while partially connected.
+                    // Should be handled by the UI (to show the user not being able to lock).
+                    log::error!("Cannot lock partially connected link");
+                    return Vec::new();
+                }
+
+                match locked {
+                    Some(true) => {
+                        // change the state to react in the next graph update
+                        link.state = LinkState::ConnectedLocked;
+                        Vec::new()
+                    }
+                    Some(false) => {
+                        // change the state and remove the link
+                        link.state = LinkState::DisconnectedLocked;
+                        return self.remove_pipewire_node_links(graph, source, sink);
+                    }
+                    None => {
+                        link.state = LinkState::ConnectedUnlocked;
+                        Vec::new()
+                    }
                 }
             }
             SonusmixMsg::SetVolumeLocked(endpoint_desc, locked) => {
@@ -591,6 +704,32 @@ impl SonusmixState {
             .collect();
 
         (node_links, endpoint_links)
+    }
+
+    /// Remove the node links from pipewire. Does not remove link from [`Self`].
+    fn remove_pipewire_node_links(
+        &self,
+        graph: &Graph,
+        source: EndpointDescriptor,
+        sink: EndpointDescriptor,
+    ) -> Vec<ToPipewireMessage> {
+        let Some(source_nodes) = self.resolve_endpoint(source, graph) else {
+            return Vec::new();
+        };
+        let Some(sink_nodes) = self.resolve_endpoint(sink, graph) else {
+            return Vec::new();
+        };
+
+        let mut messages = Vec::new();
+        for source in source_nodes.iter() {
+            for sink in sink_nodes.iter() {
+                messages.push(ToPipewireMessage::RemoveNodeLinks {
+                    start_id: source.id,
+                    end_id: sink.id,
+                })
+            }
+        }
+        return messages;
     }
 }
 
@@ -1104,102 +1243,6 @@ mod tests {
     }
 
     #[test]
-    /// Event is coming from pipewire with no link.
-    /// The sonusmix state should remove its link.
-    fn diff_links_pipewire_remove_link_unlocked() {
-        let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
-
-        let link = sonusmix_state.links[0];
-
-        // fully connected
-        assert_eq!(link.state.is_connected(), Some(true));
-
-        // now we assume that these nodes are not anymore connected in pipewire
-        pipewire_state.links.clear();
-
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
-
-        // Since the link is not locked, the sonusmix state should be updated
-        assert!(!link.state.is_locked());
-        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
-        assert!(messages.is_empty());
-        assert!(sonusmix_state.links.is_empty());
-    }
-
-    #[test]
-    /// Event is coming from pipewire with no link.
-    /// An event should be created to create that link again.
-    fn diff_links_connected_locked() {
-        let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
-
-        // fully connected
-        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
-
-        // now we assume that these nodes are not anymore connected in pipewire
-        pipewire_state.links.clear();
-        // we also lock it
-        sonusmix_state.links[0].state = LinkState::ConnectedLocked;
-
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
-
-        // since pipewire does not have the link anymore, it should be created again.
-        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
-        let expected_message = ToPipewireMessage::CreateNodeLinks {
-            start_id: 1,
-            end_id: 2,
-        };
-        assert!(messages.contains(&expected_message));
-    }
-
-    #[test]
-    /// Event is coming from pipewire with a new link.
-    /// An event should be created to remove that link.
-    fn diff_links_disconnected_locked() {
-        let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
-
-        // fully connected
-        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
-
-        // pipewire has a link (pipewire_state.node[0]),
-        // but the link should be disconnected.
-        // we also lock it
-        sonusmix_state.links[0].state = LinkState::DisconnectedLocked;
-
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
-
-        // since pipewire does not have the link anymore, it should be created again.
-        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
-        let expected_message = ToPipewireMessage::RemoveNodeLinks {
-            start_id: 1,
-            end_id: 2,
-        };
-        assert!(messages.contains(&expected_message));
-    }
-
-    #[test]
-    /// Event is coming from pipewire with a new link.
-    /// The link should be added to sonusmix.
-    fn diff_links_new_pipewire_link() {
-        let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
-
-        // fully connected
-        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
-
-        let link_to_be_added = sonusmix_state.links[0];
-
-        // pipewire has a link (pipewire_state.node[0]),
-        // which is not yet in sonusmix.
-        sonusmix_state.links.clear();
-
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
-
-        // since pipewire does not have the link anymore, it should be created again.
-        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
-        assert!(messages.is_empty());
-        assert!(sonusmix_state.links.contains(&link_to_be_added));
-    }
-
-    #[test]
     fn find_relevant_links() {
         let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
         let source_endpoint = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
@@ -1455,5 +1498,206 @@ mod tests {
     #[test]
     fn diff_properties_mixed_volume_unlocked() {
         diff_properties_mixed_volume_unlocked_or_locked(false);
+    }
+
+    #[test]
+    fn create_link() {
+        let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        // remove the link from default state
+        sonusmix_state.links.clear();
+        pipewire_state.links.clear();
+
+        let source = sonusmix_state.active_sources[0];
+        let sink = sonusmix_state.active_sinks[0];
+
+        {
+            // create a link
+            let messages = sonusmix_state.update(&pipewire_state, SonusmixMsg::Link(source, sink));
+            let expected_message = ToPipewireMessage::CreateNodeLinks {
+                start_id: 1,
+                end_id: 2,
+            };
+            assert!(messages.contains(&expected_message));
+        }
+
+        let expected_link = super::Link {
+            start: source,
+            end: sink,
+            state: LinkState::ConnectedUnlocked,
+            pending: true,
+        };
+
+        assert!(sonusmix_state.links.contains(&expected_link));
+
+        // simulate the link being successfully created by pipewire
+        pipewire_state
+            .links
+            .insert(6, Link::new_test(6, 1, 3, 2, 5));
+
+        // run the diff
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+
+        assert!(messages.is_empty());
+
+        // (there is only a single link at this point)
+        assert_eq!(sonusmix_state.links[0].pending, false);
+    }
+
+    #[test]
+    fn remove_link() {
+        let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        let source = sonusmix_state.active_sources[0];
+        let sink = sonusmix_state.active_sinks[0];
+
+        {
+            // disconnect
+            let messages =
+                sonusmix_state.update(&pipewire_state, SonusmixMsg::RemoveLink(source, sink));
+            let expected_message = ToPipewireMessage::RemoveNodeLinks {
+                start_id: 1,
+                end_id: 2,
+            };
+            assert!(messages.contains(&expected_message));
+        }
+
+        // in the next update the link will be removed.
+        // see test pipewire_remove_link_unlocked
+    }
+
+    #[test]
+    fn disconnect_locked_link() {
+        let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        let source = sonusmix_state.active_sources[0];
+        let sink = sonusmix_state.active_sinks[0];
+        let link = sonusmix_state.links[0];
+
+        {
+            // disconnect locked
+            let messages = sonusmix_state.update(
+                &pipewire_state,
+                SonusmixMsg::SetLinkLocked(source, sink, Some(false)),
+            );
+            let expected_message = ToPipewireMessage::RemoveNodeLinks {
+                start_id: 1,
+                end_id: 2,
+            };
+            assert!(messages.contains(&expected_message));
+        }
+
+        let expected_link = super::Link {
+            start: source,
+            end: sink,
+            state: LinkState::DisconnectedLocked,
+            pending: false,
+        };
+
+        assert!(sonusmix_state.links.contains(&expected_link));
+
+        // simulate trying to establish a connection between these nodes
+        pipewire_state
+            .links
+            .insert(6, Link::new_test(6, 1, 3, 2, 5));
+
+        // run the diff
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+
+        // sonusmix should tell pipewire to delete that link again
+        let expected_message = ToPipewireMessage::RemoveNodeLinks {
+            start_id: 1,
+            end_id: 2,
+        };
+        assert!(messages.contains(&expected_message));
+    }
+
+    #[test]
+    fn connect_locked_link() {
+        let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        let source = sonusmix_state.active_sources[0];
+        let sink = sonusmix_state.active_sinks[0];
+        let link = sonusmix_state.links[0];
+
+        {
+            // disconnect locked
+            let messages = sonusmix_state.update(
+                &pipewire_state,
+                SonusmixMsg::SetLinkLocked(source, sink, Some(true)),
+            );
+            assert!(messages.is_empty());
+        }
+
+        let expected_link = super::Link {
+            start: source,
+            end: sink,
+            state: LinkState::ConnectedLocked,
+            pending: false,
+        };
+
+        assert!(sonusmix_state.links.contains(&expected_link));
+
+        // simulate pipewire trying to delete this link
+        pipewire_state.links.clear();
+
+        // run the diff
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+
+        // sonusmix should tell pipewire to create that link again
+        let expected_message = ToPipewireMessage::CreateNodeLinks {
+            start_id: 1,
+            end_id: 2,
+        };
+        assert!(messages.contains(&expected_message));
+    }
+
+    #[test]
+    /// Event is coming from pipewire with a new link.
+    /// The link should be added to sonusmix.
+    fn new_pipewire_link() {
+        let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        // fully connected
+        assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
+
+        let link_to_be_added = sonusmix_state.links[0];
+
+        // pipewire has a link (pipewire_state.node[0]),
+        // which is not yet in sonusmix.
+        sonusmix_state.links.clear();
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // since pipewire does not have the link anymore, it should be created again.
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+        assert!(messages.is_empty());
+        assert!(sonusmix_state.links.contains(&link_to_be_added));
+    }
+
+    #[test]
+    /// Event is coming from pipewire with no link.
+    /// The sonusmix state should remove its unlocked.
+    fn pipewire_remove_link_unlocked() {
+        let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+
+        let link = sonusmix_state.links[0];
+
+        // fully connected
+        assert_eq!(link.state.is_connected(), Some(true));
+
+        // now we assume that these nodes are not anymore connected in pipewire
+        pipewire_state.links.clear();
+
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+
+        // Since the link is not locked, the sonusmix state should be updated
+        assert!(!link.state.is_locked());
+        let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
+        assert!(messages.is_empty());
+        assert!(sonusmix_state.links.is_empty());
     }
 }
