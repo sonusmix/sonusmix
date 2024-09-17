@@ -11,20 +11,20 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::{
-    pipewire_api::{Node, PortKind},
-    state2::{Endpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState},
+    pipewire_api::PortKind,
+    state::{Endpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState},
 };
 
-pub struct ChooseNodeDialog {
+pub struct ChooseEndpointDialog {
     sonusmix_state: Arc<SonusmixState>,
     list: PortKind,
-    nodes: FactoryVecDeque<ChooseNodeItem>,
+    endpoints: FactoryVecDeque<ChooseEndpointItem>,
     visible: bool,
     search_text: String,
 }
 
 #[derive(Debug)]
-pub enum ChooseNodeDialogMsg {
+pub enum ChooseEndpointDialogMsg {
     SonusmixState(Arc<SonusmixState>),
     Show(PortKind),
     #[doc(hidden)]
@@ -32,15 +32,15 @@ pub enum ChooseNodeDialogMsg {
     #[doc(hidden)]
     Close,
     #[doc(hidden)]
-    NodeChosen(EndpointDescriptor),
+    EndpointChosen(EndpointDescriptor),
     #[doc(hidden)]
     SearchUpdated(String),
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for ChooseNodeDialog {
+impl SimpleComponent for ChooseEndpointDialog {
     type Init = ();
-    type Input = ChooseNodeDialogMsg;
+    type Input = ChooseEndpointDialogMsg;
     type Output = Infallible;
 
     view! {
@@ -53,7 +53,7 @@ impl SimpleComponent for ChooseNodeDialog {
             add_controller = gtk::EventControllerKey {
                 connect_key_pressed[sender] => move |_, key, _, _| {
                     if key == gtk::gdk::Key::Escape {
-                        sender.input(ChooseNodeDialogMsg::Close);
+                        sender.input(ChooseEndpointDialogMsg::Close);
                         Propagation::Stop
                     } else {
                         Propagation::Proceed
@@ -62,7 +62,7 @@ impl SimpleComponent for ChooseNodeDialog {
             },
 
             connect_close_request[sender] => move |_| {
-                sender.input(ChooseNodeDialogMsg::Close);
+                sender.input(ChooseEndpointDialogMsg::Close);
                 Propagation::Stop
             },
 
@@ -73,8 +73,8 @@ impl SimpleComponent for ChooseNodeDialog {
 
                     connect_visible_child_name_notify[sender] => move |stack| {
                         match stack.visible_child_name().as_ref().map(|name| name.as_str()) {
-                            Some("sources") => sender.input(ChooseNodeDialogMsg::ListChanged(PortKind::Source)),
-                            Some("sinks") => sender.input(ChooseNodeDialogMsg::ListChanged(PortKind::Sink)),
+                            Some("sources") => sender.input(ChooseEndpointDialogMsg::ListChanged(PortKind::Source)),
+                            Some("sinks") => sender.input(ChooseEndpointDialogMsg::ListChanged(PortKind::Sink)),
                             _ => {}
                         }
                     } @list_change_handler,
@@ -108,11 +108,11 @@ impl SimpleComponent for ChooseNodeDialog {
                     set_placeholder_text: Some("Search..."),
 
                     connect_search_changed[sender] => move |search| {
-                        sender.input(ChooseNodeDialogMsg::SearchUpdated(String::from(search.text())));
+                        sender.input(ChooseEndpointDialogMsg::SearchUpdated(String::from(search.text())));
                     }
                 },
 
-                if model.nodes.is_empty() {
+                if model.endpoints.is_empty() {
                     gtk::Label {
                         set_vexpand: true,
                         set_valign: gtk::Align::Center,
@@ -130,7 +130,7 @@ impl SimpleComponent for ChooseNodeDialog {
                         set_propagate_natural_height: true,
 
                         #[local_ref]
-                        nodes_list_box -> gtk::ListBox {
+                        endpoints_list_box -> gtk::ListBox {
                             set_selection_mode: gtk::SelectionMode::None,
                             set_show_separators: true,
                         }
@@ -142,66 +142,66 @@ impl SimpleComponent for ChooseNodeDialog {
 
     fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let sonusmix_state =
-            SonusmixReducer::subscribe(sender.input_sender(), ChooseNodeDialogMsg::SonusmixState);
+            SonusmixReducer::subscribe(sender.input_sender(), ChooseEndpointDialogMsg::SonusmixState);
 
-        let nodes = FactoryVecDeque::builder()
+        let endpoints = FactoryVecDeque::builder()
             .launch(gtk::ListBox::new())
-            .forward(sender.input_sender(), ChooseNodeDialogMsg::NodeChosen);
+            .forward(sender.input_sender(), ChooseEndpointDialogMsg::EndpointChosen);
 
-        let model = ChooseNodeDialog {
+        let model = ChooseEndpointDialog {
             sonusmix_state,
             list: PortKind::Source,
-            nodes,
+            endpoints,
             visible: false,
             search_text: String::new(),
         };
 
-        let nodes_list_box = model.nodes.widget();
+        let endpoints_list_box = model.endpoints.widget();
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: ChooseNodeDialogMsg, _sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: ChooseEndpointDialogMsg, _sender: ComponentSender<Self>) {
         match msg {
-            ChooseNodeDialogMsg::SonusmixState(state) => {
+            ChooseEndpointDialogMsg::SonusmixState(state) => {
                 self.sonusmix_state = state;
-                self.update_inactive_nodes();
+                self.update_inactive_endpoints();
             }
-            ChooseNodeDialogMsg::Show(list) => {
+            ChooseEndpointDialogMsg::Show(list) => {
                 self.list = list;
-                self.update_inactive_nodes();
+                self.update_inactive_endpoints();
                 self.visible = true;
             }
-            ChooseNodeDialogMsg::ListChanged(list) => {
+            ChooseEndpointDialogMsg::ListChanged(list) => {
                 self.list = list;
-                self.update_inactive_nodes();
+                self.update_inactive_endpoints();
             }
-            ChooseNodeDialogMsg::Close => {
+            ChooseEndpointDialogMsg::Close => {
                 self.visible = false;
             }
-            ChooseNodeDialogMsg::NodeChosen(endpoint) => {
+            ChooseEndpointDialogMsg::EndpointChosen(endpoint) => {
                 SonusmixReducer::emit(SonusmixMsg::AddEndpoint(endpoint));
             }
-            ChooseNodeDialogMsg::SearchUpdated(search_text) => {
+            ChooseEndpointDialogMsg::SearchUpdated(search_text) => {
                 self.search_text = search_text;
-                self.update_inactive_nodes();
+                self.update_inactive_endpoints();
             }
         }
     }
 }
 
-impl ChooseNodeDialog {
+impl ChooseEndpointDialog {
     pub fn active_list(&self) -> Option<PortKind> {
         self.visible.then_some(self.list)
     }
 
-    fn update_inactive_nodes(&mut self) {
+    fn update_inactive_endpoints(&mut self) {
         let active = match self.list {
             PortKind::Source => self.sonusmix_state.active_sources.as_slice(),
             PortKind::Sink => self.sonusmix_state.active_sinks.as_slice(),
         };
-        let mut factory = self.nodes.guard();
+        let mut factory = self.endpoints.guard();
         factory.clear();
 
         let mut endpoints = self
@@ -225,7 +225,7 @@ impl ChooseNodeDialog {
                 std::cmp::Reverse(
                     fuzzy_matcher
                         .fuzzy_match(endpoint.1, &self.search_text)
-                        .expect("No non-matching nodes should be remaining in the vec"),
+                        .expect("No non-matching endpoints should be remaining in the vec"),
                 )
             })
         }
@@ -236,10 +236,10 @@ impl ChooseNodeDialog {
     }
 }
 
-struct ChooseNodeItem(EndpointDescriptor, String);
+struct ChooseEndpointItem(EndpointDescriptor, String);
 
 #[relm4::factory]
-impl FactoryComponent for ChooseNodeItem {
+impl FactoryComponent for ChooseEndpointItem {
     type Init = (EndpointDescriptor, String);
     type Input = Infallible;
     type Output = EndpointDescriptor;

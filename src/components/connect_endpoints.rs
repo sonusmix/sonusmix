@@ -3,30 +3,29 @@ use relm4::prelude::*;
 use relm4::{factory::FactoryVecDeque, gtk::prelude::*};
 
 use std::convert::Infallible;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 
-use crate::pipewire_api::ToPipewireMessage;
-use crate::pipewire_api::{Graph, Node, PortKind};
-use crate::state2::{
+use crate::pipewire_api::PortKind;
+use crate::state::{
     Endpoint, EndpointDescriptor, LinkState, SonusmixMsg, SonusmixReducer, SonusmixState,
 };
 
-pub struct ConnectNodes {
+pub struct ConnectEndpoints {
     sonusmix_state: Arc<SonusmixState>,
     base_endpoint: Endpoint,
-    items: FactoryVecDeque<ConnectNodeItem>,
+    items: FactoryVecDeque<ConnectEndpointItem>,
 }
 
 #[derive(Debug)]
-pub enum ConnectNodesMsg {
+pub enum ConnectEndpointsMsg {
     StateUpdate(Arc<SonusmixState>),
-    ConnectionChanged(ConnectNodeItemOutput),
+    ConnectionChanged(ConnectEndpointItemOutput),
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for ConnectNodes {
+impl SimpleComponent for ConnectEndpoints {
     type Init = EndpointDescriptor;
-    type Input = ConnectNodesMsg;
+    type Input = ConnectEndpointsMsg;
     type Output = Infallible;
 
     view! {
@@ -56,7 +55,7 @@ impl SimpleComponent for ConnectNodes {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let sonusmix_state =
-            SonusmixReducer::subscribe(sender.input_sender(), ConnectNodesMsg::StateUpdate);
+            SonusmixReducer::subscribe(sender.input_sender(), ConnectEndpointsMsg::StateUpdate);
 
         let base_endpoint = sonusmix_state
             .endpoints
@@ -66,7 +65,7 @@ impl SimpleComponent for ConnectNodes {
 
         let items = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
-            .forward(sender.input_sender(), ConnectNodesMsg::ConnectionChanged);
+            .forward(sender.input_sender(), ConnectEndpointsMsg::ConnectionChanged);
 
         let mut model = Self {
             sonusmix_state,
@@ -81,29 +80,29 @@ impl SimpleComponent for ConnectNodes {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: ConnectNodesMsg, _sender: ComponentSender<Self>) {
+    fn update(&mut self, msg: ConnectEndpointsMsg, _sender: ComponentSender<Self>) {
         match msg {
-            ConnectNodesMsg::StateUpdate(sonusmix_state) => {
+            ConnectEndpointsMsg::StateUpdate(sonusmix_state) => {
                 self.sonusmix_state = sonusmix_state;
                 self.update_items();
             }
-            ConnectNodesMsg::ConnectionChanged(msg) => {
+            ConnectEndpointsMsg::ConnectionChanged(msg) => {
                 // TODO: Handle groups
                 let msg = if self.base_endpoint.descriptor.is_kind(PortKind::Source) {
                     match msg {
-                        ConnectNodeItemOutput::ConnectEndpoint(endpoint) => {
+                        ConnectEndpointItemOutput::ConnectEndpoint(endpoint) => {
                             SonusmixMsg::Link(self.base_endpoint.descriptor, endpoint)
                         }
-                        ConnectNodeItemOutput::DisconnectEndpoint(endpoint) => {
+                        ConnectEndpointItemOutput::DisconnectEndpoint(endpoint) => {
                             SonusmixMsg::RemoveLink(self.base_endpoint.descriptor, endpoint)
                         }
                     }
                 } else {
                     match msg {
-                        ConnectNodeItemOutput::ConnectEndpoint(endpoint) => {
+                        ConnectEndpointItemOutput::ConnectEndpoint(endpoint) => {
                             SonusmixMsg::Link(self.base_endpoint.descriptor, endpoint)
                         }
-                        ConnectNodeItemOutput::DisconnectEndpoint(endpoint) => {
+                        ConnectEndpointItemOutput::DisconnectEndpoint(endpoint) => {
                             SonusmixMsg::RemoveLink(self.base_endpoint.descriptor, endpoint)
                         }
                     }
@@ -114,7 +113,7 @@ impl SimpleComponent for ConnectNodes {
     }
 }
 
-impl ConnectNodes {
+impl ConnectEndpoints {
     fn update_items(&mut self) {
         // TODO: Handle groups
         let candidates = if self.base_endpoint.descriptor.is_kind(PortKind::Source) {
@@ -129,28 +128,32 @@ impl ConnectNodes {
             .filter_map(|id| self.sonusmix_state.endpoints.get(id))
             .cloned()
         {
-            factory.push_back((self.base_endpoint.descriptor, candidate, self.sonusmix_state.clone()));
+            factory.push_back((
+                self.base_endpoint.descriptor,
+                candidate,
+                self.sonusmix_state.clone(),
+            ));
         }
     }
 }
 
-struct ConnectNodeItem {
+struct ConnectEndpointItem {
     base_endpoint: EndpointDescriptor,
     candidate_endpoint: Endpoint,
     link_state: Option<LinkState>,
 }
 
 #[derive(Debug)]
-enum ConnectNodeItemOutput {
+enum ConnectEndpointItemOutput {
     ConnectEndpoint(EndpointDescriptor),
     DisconnectEndpoint(EndpointDescriptor),
 }
 
 #[relm4::factory]
-impl FactoryComponent for ConnectNodeItem {
+impl FactoryComponent for ConnectEndpointItem {
     type Init = (EndpointDescriptor, Endpoint, Arc<SonusmixState>);
     type Input = Infallible;
-    type Output = ConnectNodeItemOutput;
+    type Output = ConnectEndpointItemOutput;
     type CommandOutput = ();
     type ParentWidget = gtk::Box;
 
@@ -171,9 +174,9 @@ impl FactoryComponent for ConnectNodeItem {
 
                 connect_toggled[sender, descriptor = self.candidate_endpoint.descriptor] => move |check| {
                     if check.is_active() {
-                        sender.output(ConnectNodeItemOutput::ConnectEndpoint(descriptor));
+                        sender.output(ConnectEndpointItemOutput::ConnectEndpoint(descriptor));
                     } else {
-                        sender.output(ConnectNodeItemOutput::DisconnectEndpoint(descriptor));
+                        sender.output(ConnectEndpointItemOutput::DisconnectEndpoint(descriptor));
                     }
                 } @endpoint_toggled_handler
             }
@@ -181,7 +184,11 @@ impl FactoryComponent for ConnectNodeItem {
     }
 
     fn init_model(
-        (base_endpoint, candidate_endpoint, sonusmix_state): (EndpointDescriptor, Endpoint, Arc<SonusmixState>),
+        (base_endpoint, candidate_endpoint, sonusmix_state): (
+            EndpointDescriptor,
+            Endpoint,
+            Arc<SonusmixState>,
+        ),
         _index: &DynamicIndex,
         _sender: FactorySender<Self>,
     ) -> Self {

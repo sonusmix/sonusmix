@@ -6,25 +6,24 @@ use relm4::factory::FactoryView;
 use relm4::prelude::*;
 use relm4::{actions::RelmActionGroup, gtk::prelude::*};
 
-use crate::pipewire_api::{Graph, Node as PwNode, PortKind, ToPipewireMessage};
-use crate::state2::{Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState};
+use crate::state::{Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState};
 
-use super::connect_nodes::ConnectNodes;
+use super::connect_endpoints::ConnectEndpoints;
 
-pub struct Node {
+pub struct Endpoint {
     endpoint: PwEndpoint,
     enabled: bool,
-    connect_nodes: Controller<ConnectNodes>,
+    connect_endpoints: Controller<ConnectEndpoints>,
 }
 
-impl Node {
+impl Endpoint {
     pub fn id(&self) -> EndpointDescriptor {
         self.endpoint.descriptor
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum NodeMsg {
+pub enum EndpointMsg {
     UpdateState(Arc<SonusmixState>),
     #[doc(hidden)]
     Volume(f64),
@@ -34,16 +33,16 @@ pub enum NodeMsg {
 }
 
 #[derive(Debug, Clone)]
-pub enum NodeOutput {}
+pub enum EndpointOutput {}
 
-relm4::new_action_group!(NodeMenuActionGroup, "node-menu");
-relm4::new_stateless_action!(RemoveAction, NodeMenuActionGroup, "remove");
+relm4::new_action_group!(EndpointMenuActionGroup, "endpoint-menu");
+relm4::new_stateless_action!(RemoveAction, EndpointMenuActionGroup, "remove");
 
 #[relm4::factory(pub)]
-impl FactoryComponent for Node {
+impl FactoryComponent for Endpoint {
     type Init = EndpointDescriptor;
-    type Input = NodeMsg;
-    type Output = NodeOutput;
+    type Input = EndpointMsg;
+    type Output = EndpointOutput;
     type CommandOutput = ();
     type ParentWidget = gtk::Box;
 
@@ -119,7 +118,7 @@ impl FactoryComponent for Node {
                     set_format_value_func => move |_, value| format!("{value:.0}%"),
 
                     connect_value_changed[sender] => move |scale| {
-                        sender.input(NodeMsg::Volume(scale.value()));
+                        sender.input(EndpointMsg::Volume(scale.value()));
                         } @volume_handler
                 }
             },
@@ -134,12 +133,12 @@ impl FactoryComponent for Node {
 
                     gtk::MenuButton {
                         set_label: "Connections",
-                        set_popover: Some(self.connect_nodes.widget()),
+                        set_popover: Some(self.connect_endpoints.widget()),
                     },
-                    #[name(node_menu_button)]
+                    #[name(endpoint_menu_button)]
                     gtk::MenuButton {
                         set_icon_name: "view-more-symbolic",
-                        set_menu_model: Some(&node_menu),
+                        set_menu_model: Some(&endpoint_menu),
                     },
                 },
                 gtk::Box {
@@ -160,7 +159,7 @@ impl FactoryComponent for Node {
                             .is_muted()
                             .unwrap_or(false)
                         { &["mute-node-button-active", "text-button"] } else { &["", "text-button"] },
-                        connect_clicked => NodeMsg::ToggleMute,
+                        connect_clicked => EndpointMsg::ToggleMute,
                     },
                     gtk::Button {
                         set_label: "P",
@@ -172,7 +171,7 @@ impl FactoryComponent for Node {
     }
 
     menu! {
-        node_menu: {
+        endpoint_menu: {
             "Remove" => RemoveAction,
         }
     }
@@ -182,19 +181,19 @@ impl FactoryComponent for Node {
         _index: &DynamicIndex,
         sender: FactorySender<Self>,
     ) -> Self {
-        let endpoint = SonusmixReducer::subscribe(sender.input_sender(), NodeMsg::UpdateState)
+        let endpoint = SonusmixReducer::subscribe(sender.input_sender(), EndpointMsg::UpdateState)
             .endpoints
             .get(&endpoint_desc)
             .expect("endpoint component failed to find matching endpoint on init")
             .clone();
 
-        let connect_nodes = ConnectNodes::builder()
+        let connect_endpoints = ConnectEndpoints::builder()
             .launch(endpoint.descriptor)
             .forward(sender.input_sender(), |msg| match msg {});
         Self {
             endpoint,
             enabled: true,
-            connect_nodes,
+            connect_endpoints,
         }
     }
 
@@ -207,34 +206,34 @@ impl FactoryComponent for Node {
     ) -> Self::Widgets {
         let widgets = view_output!();
 
-        let mut group = RelmActionGroup::<NodeMenuActionGroup>::new();
+        let mut group = RelmActionGroup::<EndpointMenuActionGroup>::new();
         let remove_action: RelmAction<RemoveAction> = RelmAction::new_stateless({
             let sender = sender.clone();
             move |_| {
-                sender.input(NodeMsg::Remove);
+                sender.input(EndpointMsg::Remove);
             }
         });
         group.add_action(remove_action);
-        group.register_for_widget(&widgets.node_menu_button);
+        group.register_for_widget(&widgets.endpoint_menu_button);
 
         widgets
     }
 
-    fn update(&mut self, msg: NodeMsg, _sender: FactorySender<Self>) {
+    fn update(&mut self, msg: EndpointMsg, _sender: FactorySender<Self>) {
         match msg {
-            NodeMsg::UpdateState(state) => {
+            EndpointMsg::UpdateState(state) => {
                 if let Some(endpoint) = state.endpoints.get(&self.endpoint.descriptor) {
                     self.endpoint = endpoint.clone();
                 }
             }
-            NodeMsg::Volume(volume) => {
+            EndpointMsg::Volume(volume) => {
                 SonusmixReducer::emit(SonusmixMsg::SetVolume(self.endpoint.descriptor, slider_to_volume(volume)))
             }
-            NodeMsg::ToggleMute => {
+            EndpointMsg::ToggleMute => {
                 let mute = self.endpoint.volume_locked_muted.is_muted().map(|mute| !mute).unwrap_or(true);
                 SonusmixReducer::emit(SonusmixMsg::SetMute(self.endpoint.descriptor, mute));
             }
-            NodeMsg::Remove => {
+            EndpointMsg::Remove => {
                 SonusmixReducer::emit(SonusmixMsg::RemoveEndpoint(self.endpoint.descriptor));
             }
         }

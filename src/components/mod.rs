@@ -1,5 +1,5 @@
 mod about;
 pub mod app;
-mod choose_node_dialog;
-mod connect_nodes;
-mod node;
+mod choose_endpoint_dialog;
+mod connect_endpoints;
+mod endpoint;

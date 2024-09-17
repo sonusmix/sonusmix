@@ -10,19 +10,19 @@ use relm4::prelude::*;
 use tempfile::TempPath;
 
 use crate::pipewire_api::{Graph, PortKind, ToPipewireMessage};
-use crate::state2::{EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState};
+use crate::state::{EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState};
 
 use super::about::{open_third_party_licenses, AboutComponent};
-use super::choose_node_dialog::{ChooseNodeDialog, ChooseNodeDialogMsg};
-use super::node::Node;
+use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
+use super::endpoint::Endpoint;
 
 pub struct App {
     sonusmix_state: Arc<SonusmixState>,
     about_component: Option<Controller<AboutComponent>>,
     third_party_licenses_file: Option<TempPath>,
-    sources: FactoryVecDeque<Node>,
-    sinks: FactoryVecDeque<Node>,
-    choose_node_dialog: Controller<ChooseNodeDialog>,
+    sources: FactoryVecDeque<Endpoint>,
+    sinks: FactoryVecDeque<Endpoint>,
+    choose_endpoint_dialog: Controller<ChooseEndpointDialog>,
 }
 
 #[derive(Debug)]
@@ -31,7 +31,7 @@ pub enum Msg {
     UpdateState(Arc<SonusmixState>, Option<SonusmixMsg>),
     OpenAbout,
     OpenThirdPartyLicenses,
-    ChooseNode(PortKind),
+    ChooseEndpoint(PortKind),
 }
 
 #[derive(Debug)]
@@ -114,7 +114,7 @@ impl Component for App {
                             set_label: "Add Source",
 
                             connect_clicked[sender] => move |_| {
-                                sender.input(Msg::ChooseNode(PortKind::Source));
+                                sender.input(Msg::ChooseEndpoint(PortKind::Source));
                             }
                         }
                     },
@@ -155,7 +155,7 @@ impl Component for App {
                             set_icon_name: "list-add-symbolic",
                             set_label: "Add Sink",
 
-                            connect_clicked => Msg::ChooseNode(PortKind::Sink),
+                            connect_clicked => Msg::ChooseEndpoint(PortKind::Sink),
                         }
                     },
                 }
@@ -184,7 +184,7 @@ impl Component for App {
         let sinks = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
             .forward(sender.input_sender(), |output| match output {});
-        let choose_node_dialog = ChooseNodeDialog::builder()
+        let choose_endpoint_dialog = ChooseEndpointDialog::builder()
             .transient_for(&root)
             .launch(())
             .detach();
@@ -195,7 +195,7 @@ impl Component for App {
             sonusmix_state,
             sources,
             sinks,
-            choose_node_dialog,
+            choose_endpoint_dialog,
         };
 
         let sources_list = model.sources.widget();
@@ -229,9 +229,9 @@ impl Component for App {
             Msg::Ignore => {}
             Msg::UpdateState(state, msg) => {
                 self.sonusmix_state = state;
-                // Update the choose node dialog if it's open
-                if let Some(list) = self.choose_node_dialog.model().active_list() {
-                    sender.input(Msg::ChooseNode(list));
+                // Update the choose endpoint dialog if it's open
+                if let Some(list) = self.choose_endpoint_dialog.model().active_list() {
+                    sender.input(Msg::ChooseEndpoint(list));
                 }
 
                 match msg {
@@ -274,11 +274,11 @@ impl Component for App {
                     CommandMsg::OpenThirdPartyLicenses(open_third_party_licenses(temp_path))
                 });
             }
-            Msg::ChooseNode(list) => {
+            Msg::ChooseEndpoint(list) => {
                 let _ = self
-                    .choose_node_dialog
+                    .choose_endpoint_dialog
                     .sender()
-                    .send(ChooseNodeDialogMsg::Show(list));
+                    .send(ChooseEndpointDialogMsg::Show(list));
             }
         };
     }
