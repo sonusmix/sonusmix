@@ -783,7 +783,7 @@ impl Endpoint {
         self.volume_locked_muted = if muted {
             VolumeLockMuteState::MutedUnlocked
         } else {
-            VolumeLockMuteState::UnmutedLocked
+            VolumeLockMuteState::UnmutedUnlocked
         };
         self
     }
