@@ -6,7 +6,9 @@ use relm4::factory::FactoryView;
 use relm4::prelude::*;
 use relm4::{actions::RelmActionGroup, gtk::prelude::*};
 
-use crate::state::{Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState};
+use crate::state::{
+    Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState,
+};
 
 use super::connect_endpoints::ConnectEndpoints;
 
@@ -145,20 +147,20 @@ impl FactoryComponent for Endpoint {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 5,
 
-                    gtk::Button {
-                        set_label: "M",
+                    #[name(mute_button)]
+                    gtk::ToggleButton {
                         #[watch]
-                        set_tooltip: if self.endpoint
-                            .volume_locked_muted
-                            .is_muted()
-                            .unwrap_or(false)
-                        { "Unmute" } else { "Mute" },
+                        set_active: self.endpoint.volume_locked_muted.is_muted().unwrap_or(false),
                         #[watch]
-                        set_css_classes: if self.endpoint
-                            .volume_locked_muted
-                            .is_muted()
-                            .unwrap_or(false)
-                        { &["mute-node-button-active", "text-button"] } else { &["", "text-button"] },
+                        set_icon_name: if mute_button.is_active()
+                            { "audio-volume-muted-symbolic" } else { "audio-volume-high-symbolic" },
+                        #[watch]
+                        set_tooltip: if mute_button.is_active()
+                            { "Unmute" } else { "Mute" },
+                        #[watch]
+                        set_css_classes: if mute_button.is_active()
+                            { &["destructive-action", "image-button"] } else { &["flat", "image-button"] },
+
                         connect_clicked => EndpointMsg::ToggleMute,
                     },
                     gtk::Button {
@@ -226,11 +228,17 @@ impl FactoryComponent for Endpoint {
                     self.endpoint = endpoint.clone();
                 }
             }
-            EndpointMsg::Volume(volume) => {
-                SonusmixReducer::emit(SonusmixMsg::SetVolume(self.endpoint.descriptor, slider_to_volume(volume)))
-            }
+            EndpointMsg::Volume(volume) => SonusmixReducer::emit(SonusmixMsg::SetVolume(
+                self.endpoint.descriptor,
+                slider_to_volume(volume),
+            )),
             EndpointMsg::ToggleMute => {
-                let mute = self.endpoint.volume_locked_muted.is_muted().map(|mute| !mute).unwrap_or(true);
+                let mute = self
+                    .endpoint
+                    .volume_locked_muted
+                    .is_muted()
+                    .map(|mute| !mute)
+                    .unwrap_or(true);
                 SonusmixReducer::emit(SonusmixMsg::SetMute(self.endpoint.descriptor, mute));
             }
             EndpointMsg::Remove => {

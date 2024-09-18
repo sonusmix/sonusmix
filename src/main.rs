@@ -20,7 +20,6 @@ fn main() {
         PipewireHandle::init((tx, rx), update_fn).expect("failed to connect to Pipewire");
 
     let app = RelmApp::new("sonusmix");
-    relm4::set_global_css(include_str!("components/app.css"));
 
     app.run::<App>(());
 
