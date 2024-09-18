@@ -115,6 +115,7 @@ impl FactoryComponent for Endpoint {
                 },
                 gtk::Scale {
                     set_range: (0.0, 100.0),
+                    set_increments: (1.0, 5.0),
                     #[watch]
                     #[block_signal(volume_handler)]
                     set_value: volume_to_slider(self.endpoint.volume),
