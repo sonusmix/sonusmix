@@ -1,5 +1,6 @@
 use std::sync::{mpsc, Arc};
 
+use gtk::glib::Propagation;
 use log::debug;
 use relm4::actions::RelmAction;
 use relm4::factory::FactoryView;
@@ -14,8 +15,10 @@ use super::connect_endpoints::ConnectEndpoints;
 
 pub struct Endpoint {
     endpoint: PwEndpoint,
+    renaming: bool,
     enabled: bool,
     connect_endpoints: Controller<ConnectEndpoints>,
+    custom_name_buffer: gtk::EntryBuffer,
 }
 
 impl Endpoint {
@@ -27,14 +30,14 @@ impl Endpoint {
 #[derive(Debug, Clone)]
 pub enum EndpointMsg {
     UpdateState(Arc<SonusmixState>),
-    #[doc(hidden)]
     Volume(f64),
-    #[doc(hidden)]
     ToggleMute,
-    #[doc(hidden)]
     ToggleLocked,
-    #[doc(hidden)]
     Remove,
+    StartRename,
+    /// true if confirmed, false if cancelled
+    FinishRename(bool),
+    ResetName,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +45,8 @@ pub enum EndpointOutput {}
 
 relm4::new_action_group!(EndpointMenuActionGroup, "endpoint-menu");
 relm4::new_stateless_action!(RemoveAction, EndpointMenuActionGroup, "remove");
+relm4::new_stateless_action!(RenameAction, EndpointMenuActionGroup, "rename");
+relm4::new_stateless_action!(ResetNameAction, EndpointMenuActionGroup, "reset-name");
 
 #[relm4::factory(pub)]
 impl FactoryComponent for Endpoint {
@@ -83,16 +88,43 @@ impl FactoryComponent for Endpoint {
                         set_icon_name: Some(&self.endpoint.icon_name),
                     },
 
-                    gtk::Label {
-                        set_hexpand: true,
-                        set_halign: gtk::Align::Start,
-                        set_ellipsize: gtk::pango::EllipsizeMode::End,
+                    if self.renaming {
+                        gtk::Entry::with_buffer(&self.custom_name_buffer) {
+                            connect_map => |entry| { entry.grab_focus(); },
+                            connect_activate => EndpointMsg::FinishRename(true),
 
-                        #[watch]
-                        set_label: &self.endpoint.display_name,
-                        #[watch]
-                        set_tooltip: &self.endpoint.display_name,
-                        set_css_classes: &["heading"],
+                            // Add an event controller to cancel renameing on Esc
+                            add_controller = gtk::EventControllerKey {
+                                connect_key_pressed[sender] => move |_, key, _, _| {
+                                    if key == gtk::gdk::Key::Escape {
+                                        sender.input(EndpointMsg::FinishRename(false));
+                                        Propagation::Stop
+                                    } else {
+                                        Propagation::Proceed
+                                    }
+                                }
+                            },
+                        }
+                    } else {
+                        gtk::Label {
+                            set_hexpand: true,
+                            set_halign: gtk::Align::Start,
+                            set_ellipsize: gtk::pango::EllipsizeMode::End,
+
+                            #[watch]
+                            set_label: self.endpoint.custom_or_display_name(),
+                            #[watch]
+                            set_tooltip: self.endpoint.custom_or_display_name(),
+                            set_css_classes: &["heading"],
+
+                            add_controller = gtk::GestureClick {
+                                connect_released[sender] => move |_, num_presses, _, _| {
+                                    if num_presses >= 2 {
+                                        sender.input(EndpointMsg::StartRename);
+                                    }
+                                }
+                            }
+                        }
                     },
 
                     gtk::Label {
@@ -197,6 +229,8 @@ impl FactoryComponent for Endpoint {
     menu! {
         endpoint_menu: {
             "Remove" => RemoveAction,
+            "Rename" => RenameAction,
+            "Reset Name" => ResetNameAction,
         }
     }
 
@@ -214,10 +248,15 @@ impl FactoryComponent for Endpoint {
         let connect_endpoints = ConnectEndpoints::builder()
             .launch(endpoint.descriptor)
             .forward(sender.input_sender(), |msg| match msg {});
+
+        let custom_name_buffer = gtk::EntryBuffer::new(None::<&str>);
+
         Self {
             endpoint,
+            renaming: false,
             enabled: true,
             connect_endpoints,
+            custom_name_buffer,
         }
     }
 
@@ -238,6 +277,20 @@ impl FactoryComponent for Endpoint {
             }
         });
         group.add_action(remove_action);
+        let rename_action: RelmAction<RenameAction> = RelmAction::new_stateless({
+            let sender = sender.clone();
+            move |_| {
+                sender.input(EndpointMsg::StartRename);
+            }
+        });
+        group.add_action(rename_action);
+        let reset_name_action: RelmAction<ResetNameAction> = RelmAction::new_stateless({
+            let sender = sender.clone();
+            move |_| {
+                sender.input(EndpointMsg::ResetName);
+            }
+        });
+        group.add_action(reset_name_action);
         group.register_for_widget(&widgets.endpoint_menu_button);
 
         widgets
@@ -271,6 +324,24 @@ impl FactoryComponent for Endpoint {
             }
             EndpointMsg::Remove => {
                 SonusmixReducer::emit(SonusmixMsg::RemoveEndpoint(self.endpoint.descriptor));
+            }
+            EndpointMsg::StartRename => {
+                self.renaming = true;
+                self.custom_name_buffer
+                    .set_text(self.endpoint.custom_or_display_name());
+            }
+            EndpointMsg::FinishRename(confirm) => {
+                self.renaming = false;
+                if confirm {
+                    SonusmixReducer::emit(SonusmixMsg::RenameEndpoint(
+                        self.endpoint.descriptor,
+                        Some(self.custom_name_buffer.text().to_string()),
+                    ));
+                }
+            }
+            EndpointMsg::ResetName => {
+                self.renaming = false;
+                SonusmixReducer::emit(SonusmixMsg::RenameEndpoint(self.endpoint.descriptor, None));
             }
         }
     }

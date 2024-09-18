@@ -10,13 +10,15 @@ use ulid::Ulid;
 
 use crate::pipewire_api::{Graph, Link as PwLink, Node as PwNode, PortKind, ToPipewireMessage};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum SonusmixMsg {
     AddEndpoint(EndpointDescriptor),
     RemoveEndpoint(EndpointDescriptor),
     SetVolume(EndpointDescriptor, f32),
     SetMute(EndpointDescriptor, bool),
     SetVolumeLocked(EndpointDescriptor, bool),
+    /// If the parameter is None, then reset the name
+    RenameEndpoint(EndpointDescriptor, Option<String>),
     Link(EndpointDescriptor, EndpointDescriptor),
     RemoveLink(EndpointDescriptor, EndpointDescriptor),
     /// Set if a link is supposed to be locked or not.
@@ -321,6 +323,16 @@ impl SonusmixState {
                     // No more changes are needed.
                     Vec::new()
                 }
+            }
+            SonusmixMsg::RenameEndpoint(endpoint_desc, name) => {
+                if let Some(endpoint) = self.endpoints.get_mut(&endpoint_desc) {
+                    match name {
+                        // Unset the custom name if it is the same as the display name
+                        Some(name) if name == endpoint.display_name => endpoint.custom_name = None,
+                        _ => endpoint.custom_name = name,
+                    }
+                }
+                Vec::new()
             }
         }
     }
@@ -758,6 +770,7 @@ pub struct Endpoint {
     pub descriptor: EndpointDescriptor,
     pub is_placeholder: bool,
     pub display_name: String,
+    pub custom_name: Option<String>,
     pub icon_name: String,
     pub details: Option<String>,
     pub volume: f32,
@@ -776,6 +789,7 @@ impl Endpoint {
             is_placeholder: false,
             // String::new() does not allocate until data is added
             display_name: String::new(),
+            custom_name: None,
             icon_name: String::new(),
             details: None,
             volume: 0.0,
@@ -815,13 +829,19 @@ impl Endpoint {
         self
     }
 
+    pub fn custom_or_display_name(&self) -> &str {
+        self.custom_name.as_ref().unwrap_or(&self.display_name)
+    }
+
     #[cfg(test)]
     pub fn new_test(descriptor: EndpointDescriptor) -> Self {
         Endpoint {
             descriptor,
             is_placeholder: false,
             display_name: "TESTING ENDPOINT".to_string(),
+            custom_name: None,
             icon_name: "applications-development".to_string(),
+            details: None,
             volume: 0.0,
             volume_mixed: false,
             volume_locked_muted: VolumeLockMuteState::UnmutedUnlocked,
