@@ -29,7 +29,10 @@ pub enum EndpointMsg {
     UpdateState(Arc<SonusmixState>),
     #[doc(hidden)]
     Volume(f64),
+    #[doc(hidden)]
     ToggleMute,
+    #[doc(hidden)]
+    ToggleLocked,
     #[doc(hidden)]
     Remove,
 }
@@ -162,6 +165,25 @@ impl FactoryComponent for Endpoint {
 
                         connect_clicked => EndpointMsg::ToggleMute,
                     },
+                    #[name(volume_lock_button)]
+                    gtk::ToggleButton {
+                        add_css_class: "flat",
+
+                        #[watch]
+                        set_active: self.endpoint.volume_locked_muted.is_locked(),
+                        #[watch]
+                        set_icon_name: if volume_lock_button.is_active()
+                            { "changes-prevent-symbolic" } else { "changes-allow-symbolic" },
+                        #[watch]
+                        set_tooltip: if volume_lock_button.is_active()
+                        {
+                            "Allow volume changes outside of Sonusmix"
+                        } else {
+                            "Prevent volume changes outside of Sonusmix"
+                        },
+
+                        connect_clicked => EndpointMsg::ToggleLocked,
+                    },
                     gtk::Button {
                         set_label: "P",
                         set_tooltip: "Primary",
@@ -239,6 +261,12 @@ impl FactoryComponent for Endpoint {
                     .map(|mute| !mute)
                     .unwrap_or(true);
                 SonusmixReducer::emit(SonusmixMsg::SetMute(self.endpoint.descriptor, mute));
+            }
+            EndpointMsg::ToggleLocked => {
+                SonusmixReducer::emit(SonusmixMsg::SetVolumeLocked(
+                    self.endpoint.descriptor,
+                    !self.endpoint.volume_locked_muted.is_locked(),
+                ));
             }
             EndpointMsg::Remove => {
                 SonusmixReducer::emit(SonusmixMsg::RemoveEndpoint(self.endpoint.descriptor));
