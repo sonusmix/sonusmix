@@ -106,10 +106,9 @@ impl FactoryComponent for Endpoint {
                     set_css_classes: &["caption", "dim-label"],
 
                     #[watch]
-                    // set_label: &self.endpoint.identifier.details().unwrap_or_default(),
-                    set_label: "",
-                    // #[watch]
-                    // set_tooltip?: self.endpoint.identifier.details(),
+                    set_label: &self.endpoint.details.as_ref().map(|s| s.as_str()).unwrap_or(""),
+                    #[watch]
+                    set_tooltip?: self.endpoint.details.as_ref(),
                 },
                 gtk::Scale {
                     set_range: (0.0, 100.0),

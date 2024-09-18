@@ -61,6 +61,7 @@ impl SonusmixState {
                 let endpoint = Endpoint::new(descriptor)
                     .with_display_name(node.identifier.human_name().to_owned())
                     .with_icon_name(node.identifier.icon_name().to_string())
+                    .with_details(node.identifier.details().map(ToOwned::to_owned))
                     .with_volume(
                         average_volumes(&node.channel_volumes),
                         !node.channel_volumes.iter().all_equal(),
@@ -349,9 +350,6 @@ impl SonusmixState {
             .flatten()
             .collect();
         let mut endpoint_nodes = HashMap::new();
-        // Keep a record of which endpoints are placeholders or not so that we're not mutating
-        // while iterating
-        let mut placeholders = Vec::new();
         for endpoint in self
             .active_sources
             .iter()
@@ -369,15 +367,22 @@ impl SonusmixState {
                     }
                 }
 
+                if let Some(endpoint) = self.endpoints.get_mut(&endpoint) {
+                    // Copy the details from the first resolved node that has any
+                    endpoint.details = nodes
+                        .iter()
+                        .filter_map(|node| node.identifier.details())
+                        .next()
+                        .map(ToOwned::to_owned);
+
+                    endpoint.is_placeholder = false;
+                }
+
                 endpoint_nodes.insert(endpoint, nodes);
-                placeholders.push((endpoint, false));
             } else {
-                placeholders.push((endpoint, true));
-            }
-        }
-        for (endpoint, is_placeholder) in placeholders {
-            if let Some(endpoint) = self.endpoints.get_mut(&endpoint) {
-                endpoint.is_placeholder = is_placeholder;
+                if let Some(endpoint) = self.endpoints.get_mut(&endpoint) {
+                    endpoint.is_placeholder = true;
+                }
             }
         }
         // TODO: Check if any of the leftover Pipewire nodes correspond to group nodes. If so, tell
@@ -739,6 +744,7 @@ pub struct Endpoint {
     pub is_placeholder: bool,
     pub display_name: String,
     pub icon_name: String,
+    pub details: Option<String>,
     pub volume: f32,
     /// This will be true if all of the channels across all of the nodes this endpoint represents
     /// are not set to the same volume. This state is allowed, but the user will be notified of it,
@@ -756,6 +762,7 @@ impl Endpoint {
             // String::new() does not allocate until data is added
             display_name: String::new(),
             icon_name: String::new(),
+            details: None,
             volume: 0.0,
             volume_mixed: false,
             volume_locked_muted: VolumeLockMuteState::UnmutedUnlocked,
@@ -770,6 +777,11 @@ impl Endpoint {
 
     fn with_icon_name(mut self, icon_name: String) -> Self {
         self.icon_name = icon_name;
+        self
+    }
+
+    fn with_details(mut self, details: Option<String>) -> Self {
+        self.details = details;
         self
     }
 
