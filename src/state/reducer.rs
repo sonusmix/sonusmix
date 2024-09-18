@@ -73,7 +73,6 @@ impl SonusmixReducer {
                             let t0 = Instant::now();
                             let messages = state.diff(&graph);
                             let t1 = Instant::now();
-                            debug!("graph update, time: {:?}, messages: {messages:?}", t1 - t0);
                             for message in messages {
                                 reducer.pw_sender.send(message);
                             }

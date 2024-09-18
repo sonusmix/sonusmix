@@ -166,7 +166,9 @@ impl SimpleComponent for ChooseEndpointDialog {
         match msg {
             ChooseEndpointDialogMsg::SonusmixState(state) => {
                 self.sonusmix_state = state;
-                self.update_inactive_endpoints();
+                if self.visible {
+                    self.update_inactive_endpoints();
+                }
             }
             ChooseEndpointDialogMsg::Show(list) => {
                 self.list = list;
