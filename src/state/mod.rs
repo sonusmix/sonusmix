@@ -57,6 +57,10 @@ impl SonusmixState {
                     return Vec::new();
                 };
 
+                let _ = self
+                    .candidates
+                    .remove(&EndpointDescriptor::EphemeralNode(id, kind));
+
                 let descriptor = EndpointDescriptor::EphemeralNode(id, kind);
                 let endpoint = Endpoint::new(descriptor)
                     .with_display_name(node.identifier.human_name().to_owned())
@@ -87,6 +91,17 @@ impl SonusmixState {
                     .retain(|endpoint| *endpoint != endpoint_desc);
                 self.active_sinks
                     .retain(|endpoint| *endpoint != endpoint_desc);
+
+                match endpoint_desc {
+                    EndpointDescriptor::EphemeralNode(id, _) => {
+                        let Some(node) = graph.nodes.get(&id) else {
+                            return Vec::new();
+                        };
+                        self.candidates
+                            .insert(endpoint_desc, node.identifier.human_name().to_string());
+                    }
+                    _ => todo!(),
+                };
 
                 // TODO: Handle cleanup specific to each endpoint type here. AFAIK the only type
                 // that needs extra handling will be group nodes (i.e., remove the backing
