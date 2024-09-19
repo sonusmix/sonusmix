@@ -65,7 +65,10 @@ impl SimpleComponent for ConnectEndpoints {
 
         let items = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
-            .forward(sender.input_sender(), ConnectEndpointsMsg::ConnectionChanged);
+            .forward(
+                sender.input_sender(),
+                ConnectEndpointsMsg::ConnectionChanged,
+            );
 
         let mut model = Self {
             sonusmix_state,
@@ -100,10 +103,10 @@ impl SimpleComponent for ConnectEndpoints {
                 } else {
                     match msg {
                         ConnectEndpointItemOutput::ConnectEndpoint(endpoint) => {
-                            SonusmixMsg::Link(self.base_endpoint.descriptor, endpoint)
+                            SonusmixMsg::Link(endpoint, self.base_endpoint.descriptor)
                         }
                         ConnectEndpointItemOutput::DisconnectEndpoint(endpoint) => {
-                            SonusmixMsg::RemoveLink(self.base_endpoint.descriptor, endpoint)
+                            SonusmixMsg::RemoveLink(endpoint, self.base_endpoint.descriptor)
                         }
                     }
                 };
@@ -164,7 +167,7 @@ impl FactoryComponent for ConnectEndpointItem {
 
             gtk::CheckButton {
                 #[watch]
-                set_label: Some(&self.candidate_endpoint.display_name),
+                set_label: Some(&self.candidate_endpoint.custom_or_display_name()),
                 #[watch]
                 #[block_signal(endpoint_toggled_handler)]
                 set_active: self.link_state.and_then(|link| link.is_connected()).unwrap_or(false),

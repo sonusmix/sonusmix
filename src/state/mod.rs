@@ -1,5 +1,6 @@
 mod reducer;
 
+use log::{error, warn};
 pub use reducer::SonusmixReducer;
 
 use std::collections::{HashMap, HashSet};
@@ -21,12 +22,7 @@ pub enum SonusmixMsg {
     RenameEndpoint(EndpointDescriptor, Option<String>),
     Link(EndpointDescriptor, EndpointDescriptor),
     RemoveLink(EndpointDescriptor, EndpointDescriptor),
-    /// Set if a link is supposed to be locked or not.
-    ///
-    /// - `Some(true)` = lock in connected state
-    /// - `Some(false)` = lock in disconnected state
-    /// - `None` = No lock
-    SetLinkLocked(EndpointDescriptor, EndpointDescriptor, Option<bool>),
+    SetLinkLocked(EndpointDescriptor, EndpointDescriptor, bool),
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -163,111 +159,6 @@ impl SonusmixState {
                     Vec::new()
                 }
             }
-            SonusmixMsg::Link(source, sink) => {
-                if source.is_kind(PortKind::Sink) || sink.is_kind(PortKind::Source) {
-                    panic!("Wrong direction in link");
-                }
-                // check if link already exists
-                if self
-                    .links
-                    .iter()
-                    .find(|link| link.start == source && link.end == sink)
-                    .is_some()
-                {
-                    return Vec::new();
-                }
-                let Some(source_nodes) = self.resolve_endpoint(source, graph) else {
-                    log::warn!("There is no source to connect from");
-                    return Vec::new();
-                };
-                let Some(sink_nodes) = self.resolve_endpoint(sink, graph) else {
-                    log::warn!("There is no sink to connect to");
-                    return Vec::new();
-                };
-
-                let mut messages: Vec<ToPipewireMessage> = Vec::new();
-
-                for source in source_nodes.iter() {
-                    for sink in sink_nodes.iter() {
-                        messages.push(ToPipewireMessage::CreateNodeLinks {
-                            start_id: source.id,
-                            end_id: sink.id,
-                        })
-                    }
-                }
-
-                let link = Link {
-                    start: source,
-                    end: sink,
-                    state: LinkState::ConnectedUnlocked,
-                    pending: true,
-                };
-                self.links.push(link);
-
-                messages
-            }
-            SonusmixMsg::RemoveLink(source, sink) => {
-                if source.is_kind(PortKind::Sink) || sink.is_kind(PortKind::Source) {
-                    panic!("Wrong direction in link");
-                }
-                let Some((link_position, link)) = self
-                    .links
-                    .iter_mut()
-                    .find_position(|link| link.start == source && link.end == sink)
-                else {
-                    log::error!("Link does not exist");
-                    return Vec::new();
-                };
-
-                if link.state != LinkState::DisconnectedLocked {
-                    // The link will be removed with the next graph update.
-                    link.state = LinkState::ConnectedUnlocked;
-                    // TODO: Should links be removed when removing from sonusmix state?
-                    return self.remove_pipewire_node_links(graph, source, sink);
-                } else {
-                    self.links.remove(link_position);
-                }
-                Vec::new()
-            }
-            SonusmixMsg::SetLinkLocked(source, sink, locked) => {
-                if source.is_kind(PortKind::Sink) || sink.is_kind(PortKind::Source) {
-                    panic!("Wrong direction in link");
-                }
-                let Some(link) = self
-                    .links
-                    .iter_mut()
-                    .find(|link| link.start == source && link.end == sink)
-                else {
-                    log::error!("Link does not exist");
-                    return Vec::new();
-                };
-
-                if (locked == Some(true) || locked == Some(false))
-                    && link.state == LinkState::PartiallyConnected
-                {
-                    // If trying to lock in any way while partially connected.
-                    // Should be handled by the UI (to show the user not being able to lock).
-                    log::error!("Cannot lock partially connected link");
-                    return Vec::new();
-                }
-
-                match locked {
-                    Some(true) => {
-                        // change the state to react in the next graph update
-                        link.state = LinkState::ConnectedLocked;
-                        Vec::new()
-                    }
-                    Some(false) => {
-                        // change the state and remove the link
-                        link.state = LinkState::DisconnectedLocked;
-                        return self.remove_pipewire_node_links(graph, source, sink);
-                    }
-                    None => {
-                        link.state = LinkState::ConnectedUnlocked;
-                        Vec::new()
-                    }
-                }
-            }
             SonusmixMsg::SetVolumeLocked(endpoint_desc, locked) => {
                 // Resolve here instead of later so we don't have overlapping borrows
                 let nodes = self.resolve_endpoint(endpoint_desc, graph);
@@ -323,6 +214,136 @@ impl SonusmixState {
                     // No more changes are needed.
                     Vec::new()
                 }
+            }
+            SonusmixMsg::Link(source, sink) => {
+                if !source.is_kind(PortKind::Source) || !sink.is_kind(PortKind::Sink) {
+                    error!("Cannot link {source:?} to {sink:?}, link may be backwards");
+                    return Vec::new();
+                }
+
+                // If either of these is None, then the loop will iterate 0 times
+                let source_nodes = self.resolve_endpoint(source, graph).unwrap_or_default();
+                let sink_nodes = self.resolve_endpoint(sink, graph).unwrap_or_default();
+
+                let mut messages: Vec<ToPipewireMessage> = Vec::new();
+                for source in &source_nodes {
+                    for sink in &sink_nodes {
+                        messages.push(ToPipewireMessage::CreateNodeLinks {
+                            start_id: source.id,
+                            end_id: sink.id,
+                        })
+                    }
+                }
+
+                if let Some(link) = self
+                    .links
+                    .iter_mut()
+                    .find(|link| link.start == source && link.end == sink)
+                {
+                    // If the link already exists in the state, update it
+                    match link.state {
+                        LinkState::PartiallyConnected => link.state = LinkState::ConnectedUnlocked,
+                        LinkState::DisconnectedLocked => link.state = LinkState::ConnectedLocked,
+                        _ => {}
+                    }
+                    if !messages.is_empty() {
+                        link.pending = true;
+                    }
+                } else {
+                    // Otherwise, add it to the state
+                    self.links.push(Link {
+                        start: source,
+                        end: sink,
+                        state: LinkState::ConnectedUnlocked,
+                        pending: !messages.is_empty(),
+                    });
+                }
+
+                messages
+            }
+            SonusmixMsg::RemoveLink(source, sink) => {
+                if !source.is_kind(PortKind::Source) || !sink.is_kind(PortKind::Sink) {
+                    error!("Cannot link {source:?} to {sink:?}, link may be backwards");
+                    return Vec::new();
+                }
+
+                let Some(link_position) = self
+                    .links
+                    .iter_mut()
+                    .position(|link| link.start == source && link.end == sink)
+                else {
+                    error!("Cannot remove link as it does not exist");
+                    return Vec::new();
+                };
+
+                match self.links[link_position].state {
+                    LinkState::PartiallyConnected | LinkState::ConnectedUnlocked => {
+                        // If the link is unlocked, it gets removed entirely
+                        self.links.swap_remove(link_position);
+                        self.remove_pipewire_node_links(graph, source, sink)
+                    }
+                    LinkState::ConnectedLocked => {
+                        // If it is locked, it gets changed to DisconnectedLocked
+                        self.links[link_position].state = LinkState::DisconnectedLocked;
+                        let messages = self.remove_pipewire_node_links(graph, source, sink);
+                        if !messages.is_empty() {
+                            self.links[link_position].pending = true;
+                        }
+                        messages
+                    }
+                    // If it is locked and disconnected, we don't need to do anything
+                    LinkState::DisconnectedLocked => Vec::new(),
+                }
+            }
+            SonusmixMsg::SetLinkLocked(source, sink, locked) => {
+                if !source.is_kind(PortKind::Source) || !sink.is_kind(PortKind::Sink) {
+                    error!("Cannot link {source:?} to {sink:?}, link may be backwards");
+                    return Vec::new();
+                }
+
+                let link_position = self
+                    .links
+                    .iter_mut()
+                    .position(|link| link.start == source && link.end == sink);
+
+                match (
+                    link_position.map(|idx| (idx, self.links[idx].state)),
+                    locked,
+                ) {
+                    (Some((idx, LinkState::PartiallyConnected)), true) => {
+                        // If trying to lock in any way while partially connected.
+                        // Should be handled by the UI (to show the user not being able to lock).
+                        error!("Cannot lock partially connected link");
+                    }
+                    (Some((idx, LinkState::ConnectedUnlocked)), true) => {
+                        self.links[idx].state = LinkState::ConnectedLocked
+                    }
+                    (None, true) => {
+                        // Link is disconnected and unlocked, make a new one that's disconnected
+                        // and locked
+                        self.links.push(Link {
+                            start: source,
+                            end: sink,
+                            state: LinkState::DisconnectedLocked,
+                            pending: false,
+                        });
+                    }
+                    // The other cases are locked already and don't need to be changed
+                    (_, true) => {}
+
+                    (Some((idx, LinkState::ConnectedLocked)), false) => {
+                        self.links[idx].state = LinkState::ConnectedUnlocked
+                    }
+                    (Some((idx, LinkState::DisconnectedLocked)), false) => {
+                        // Link is disconnected and locked, unlocking it means just removing it
+                        // from the state
+                        self.links.swap_remove(idx);
+                    }
+                    // The other cases are unlocked already and don't need to be changed
+                    (_, false) => {}
+                };
+
+                Vec::new()
             }
             SonusmixMsg::RenameEndpoint(endpoint_desc, name) => {
                 if let Some(endpoint) = self.endpoints.get_mut(&endpoint_desc) {
@@ -745,16 +766,13 @@ impl SonusmixState {
         source: EndpointDescriptor,
         sink: EndpointDescriptor,
     ) -> Vec<ToPipewireMessage> {
-        let Some(source_nodes) = self.resolve_endpoint(source, graph) else {
-            return Vec::new();
-        };
-        let Some(sink_nodes) = self.resolve_endpoint(sink, graph) else {
-            return Vec::new();
-        };
+        // If either of these is None, then the loop will iterate 0 times
+        let source_nodes = self.resolve_endpoint(source, graph).unwrap_or_default();
+        let sink_nodes = self.resolve_endpoint(sink, graph).unwrap_or_default();
 
         let mut messages = Vec::new();
-        for source in source_nodes.iter() {
-            for sink in sink_nodes.iter() {
+        for source in &source_nodes {
+            for sink in &sink_nodes {
                 messages.push(ToPipewireMessage::RemoveNodeLinks {
                     start_id: source.id,
                     end_id: sink.id,
