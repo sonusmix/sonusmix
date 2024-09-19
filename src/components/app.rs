@@ -6,7 +6,7 @@ use log::{debug, error};
 use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
-use relm4::prelude::*;
+use relm4::{prelude::*, Sender};
 use tempfile::TempPath;
 
 use crate::pipewire_api::{Graph, PortKind, ToPipewireMessage};
@@ -170,20 +170,28 @@ impl Component for App {
         }
     }
 
-    fn init(
-        _init: (),
-        root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
+    fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let sonusmix_state =
             SonusmixReducer::subscribe_msg(sender.input_sender(), Msg::UpdateState);
 
-        let sources = FactoryVecDeque::builder()
+        let mut sources = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
             .forward(sender.input_sender(), |output| match output {});
-        let sinks = FactoryVecDeque::builder()
+        {
+            let mut sources = sources.guard();
+            for endpoint in &sonusmix_state.active_sources {
+                sources.push_back(*endpoint);
+            }
+        }
+        let mut sinks = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
             .forward(sender.input_sender(), |output| match output {});
+        {
+            let mut sinks = sinks.guard();
+            for endpoint in &sonusmix_state.active_sinks {
+                sinks.push_back(*endpoint);
+            }
+        }
         let choose_endpoint_dialog = ChooseEndpointDialog::builder()
             .transient_for(&root)
             .launch(())
@@ -237,13 +245,9 @@ impl Component for App {
                 match msg {
                     Some(SonusmixMsg::AddEndpoint(endpoint)) => {
                         if endpoint.is_kind(PortKind::Source) {
-                            self.sources
-                                .guard()
-                                .push_back(endpoint);
+                            self.sources.guard().push_back(endpoint);
                         } else {
-                            self.sinks
-                                .guard()
-                                .push_back(endpoint);
+                            self.sinks.guard().push_back(endpoint);
                         }
                         // TODO: Handle groups
                     }
@@ -295,5 +299,9 @@ impl Component for App {
                 Err(err) => error!("Failed to show third party licenses: {:?}", err),
             },
         }
+    }
+
+    fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
+        SonusmixReducer::save_and_exit();
     }
 }

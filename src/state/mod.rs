@@ -1,4 +1,5 @@
 mod reducer;
+mod persistence;
 
 use log::{error, warn};
 pub use reducer::SonusmixReducer;

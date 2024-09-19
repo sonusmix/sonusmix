@@ -7,10 +7,13 @@ use std::{
     time::Instant,
 };
 
-use log::debug;
+use log::{debug, error};
 use relm4::SharedState;
 
-use crate::pipewire_api::{Graph, ToPipewireMessage};
+use crate::{
+    pipewire_api::{Graph, ToPipewireMessage},
+    state::persistence::{autosave_task, PersistentState},
+};
 
 use super::{SonusmixMsg, SonusmixState};
 
@@ -83,12 +86,28 @@ impl SonusmixReducer {
                             }
                         }
                         ReducerMsg::Exit => {
+                            let state = { reducer.state.read().0.as_ref().clone() };
+                            let persistent_state = PersistentState::from_state(state);
+                            if let Err(err) = persistent_state.save() {
+                                error!("Error saving state: {err:#}");
+                            }
                             break;
                         }
                     }
                 }
             })
             .expect("failed to spawn state diff thread");
+
+        let state = SharedState::new();
+        // TODO: Inform the user in the UI if this failed
+        match PersistentState::load() {
+            Ok(persistent_state) => {
+                *state.write_inner() = (Arc::new(persistent_state.into_state()), None);
+            }
+            Err(err) => {
+                error!("Failed to load persistent state: {err:#}");
+            }
+        }
 
         // TODO: Use the result value from this instead of the AtomicBool to guarantee the reducer
         // is only initialzed once. This may require sending an exit message to the thread, though.
@@ -97,8 +116,11 @@ impl SonusmixReducer {
             reducer_sender: tx,
             thread_handle: reducer_handle,
             // TODO: initialize from disk
-            state: SharedState::new(),
+            state,
         });
+
+        // Start the autosave task
+        relm4::spawn(autosave_task());
 
         // Return a function that sends a `GraphUpdate` message when called
         |graph| {
@@ -111,6 +133,14 @@ impl SonusmixReducer {
     pub fn emit(msg: SonusmixMsg) {
         if let Some(reducer) = SONUSMIX_REDUCER.get() {
             let _ = reducer.reducer_sender.send(ReducerMsg::Update(msg));
+        }
+    }
+
+    // Save the state to a file, and stop the reducer thread. Any updates after this will not be
+    // processed.
+    pub fn save_and_exit() {
+        if let Some(reducer) = SONUSMIX_REDUCER.get() {
+            let _ = reducer.reducer_sender.send(ReducerMsg::Exit);
         }
     }
 
@@ -154,12 +184,6 @@ impl SonusmixReducer {
             .state
             .subscribe(sender, move |(state, msg)| f(state.clone(), msg.clone()));
         reducer.state.read().0.clone()
-    }
-}
-
-impl Drop for SonusmixReducer {
-    fn drop(&mut self) {
-        let _ = self.reducer_sender.send(ReducerMsg::Exit);
     }
 }
 
