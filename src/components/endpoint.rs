@@ -16,7 +16,6 @@ use super::connect_endpoints::ConnectEndpoints;
 pub struct Endpoint {
     endpoint: PwEndpoint,
     renaming: bool,
-    enabled: bool,
     connect_endpoints: Controller<ConnectEndpoints>,
     custom_name_buffer: gtk::EntryBuffer,
 }
@@ -64,9 +63,6 @@ impl FactoryComponent for Endpoint {
             set_margin_vertical: 4,
             set_margin_horizontal: 4,
 
-            #[watch]
-            set_sensitive: self.enabled,
-
             gtk::Box {
                 set_hexpand: true,
                 set_orientation: gtk::Orientation::Vertical,
@@ -75,17 +71,28 @@ impl FactoryComponent for Endpoint {
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
 
-                    #[name(icon_view)]
-                    gtk::Image {
-                        set_margin_end: 4,
-                        // Some icon themes use symbolic-only icons below a certain size.
-                        // Unfortunately, because Gtk thinks they aren't symbolic, it doesn't
-                        // properly recolor them, so here we let the Gtk theme set the icon size,
-                        // while ensuring that the icons don't get too small.
-                        #[watch]
-                        set_pixel_size: icon_view.pixel_size().max(24),
-                        #[watch]
-                        set_icon_name: Some(&self.endpoint.icon_name),
+                    if self.endpoint.is_placeholder {
+                        #[name(placeholder_warning_icon)]
+                        gtk::Image {
+                            set_margin_end: 8,
+                            #[watch]
+                            set_pixel_size: placeholder_warning_icon.pixel_size().max(24),
+                            set_icon_name: Some("dialog-question"),
+                            set_tooltip: "Missing node",
+                        }
+                    } else {
+                        #[name(icon_view)]
+                        gtk::Image {
+                            set_margin_end: 8,
+                            // Some icon themes use symbolic-only icons below a certain size.
+                            // Unfortunately, because Gtk thinks they aren't symbolic, it doesn't
+                            // properly recolor them, so here we let the Gtk theme set the icon size,
+                            // while ensuring that the icons don't get too small.
+                            #[watch]
+                            set_pixel_size: icon_view.pixel_size().max(24),
+                            #[watch]
+                            set_icon_name: Some(&self.endpoint.icon_name),
+                        }
                     },
 
                     if self.renaming {
@@ -104,6 +111,9 @@ impl FactoryComponent for Endpoint {
                                     }
                                 }
                             },
+                            add_controller = gtk::EventControllerFocus {
+                                connect_leave => EndpointMsg::FinishRename(false),
+                            }
                         }
                     } else {
                         gtk::Label {
@@ -254,7 +264,6 @@ impl FactoryComponent for Endpoint {
         Self {
             endpoint,
             renaming: false,
-            enabled: true,
             connect_endpoints,
             custom_name_buffer,
         }
