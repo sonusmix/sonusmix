@@ -42,8 +42,9 @@ impl SimpleComponent for ConnectEndpoints {
                 }
             } else {
                 #[local_ref]
-                *item_box -> gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
+                *item_box -> gtk::ListBox {
+                    set_selection_mode: gtk::SelectionMode::None,
+                    set_show_separators: true,
                 }
             }
         }
@@ -64,7 +65,7 @@ impl SimpleComponent for ConnectEndpoints {
             .clone();
 
         let items = FactoryVecDeque::builder()
-            .launch(gtk::Box::default())
+            .launch(gtk::ListBox::default())
             .forward(
                 sender.input_sender(),
                 ConnectEndpointsMsg::ConnectionChanged,
@@ -99,6 +100,9 @@ impl SimpleComponent for ConnectEndpoints {
                         ConnectEndpointItemOutput::DisconnectEndpoint(endpoint) => {
                             SonusmixMsg::RemoveLink(self.base_endpoint.descriptor, endpoint)
                         }
+                        ConnectEndpointItemOutput::SetEndpointLocked(endpoint, locked) => {
+                            SonusmixMsg::SetLinkLocked(self.base_endpoint.descriptor, endpoint, locked)
+                        }
                     }
                 } else {
                     match msg {
@@ -107,6 +111,9 @@ impl SimpleComponent for ConnectEndpoints {
                         }
                         ConnectEndpointItemOutput::DisconnectEndpoint(endpoint) => {
                             SonusmixMsg::RemoveLink(endpoint, self.base_endpoint.descriptor)
+                        }
+                        ConnectEndpointItemOutput::SetEndpointLocked(endpoint, locked) => {
+                            SonusmixMsg::SetLinkLocked(endpoint, self.base_endpoint.descriptor, locked)
                         }
                     }
                 };
@@ -150,6 +157,7 @@ struct ConnectEndpointItem {
 enum ConnectEndpointItemOutput {
     ConnectEndpoint(EndpointDescriptor),
     DisconnectEndpoint(EndpointDescriptor),
+    SetEndpointLocked(EndpointDescriptor, bool),
 }
 
 #[relm4::factory]
@@ -158,21 +166,39 @@ impl FactoryComponent for ConnectEndpointItem {
     type Input = Infallible;
     type Output = ConnectEndpointItemOutput;
     type CommandOutput = ();
-    type ParentWidget = gtk::Box;
+    type ParentWidget = gtk::ListBox;
 
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 8,
 
+            #[name(link_lock_button)]
+            gtk::ToggleButton {
+                add_css_class: "flat",
+
+                set_sensitive: self.link_state != Some(LinkState::PartiallyConnected),
+                set_active: self.link_state.map(|link| link.is_locked()).unwrap_or(false),
+                set_icon_name: if link_lock_button.is_active()
+                    { "changes-prevent-symbolic" } else { "changes-allow-symbolic" },
+                set_tooltip: if link_lock_button.is_active()
+                {
+                    "Allow this link to be changed outside of Sonusmix"
+                } else if link_lock_button.is_sensitive() {
+                    "Prevent this link from being changed outside of Sonusmix"
+                } else {
+                    "Link cannot be locked while it is partially connected"
+                },
+
+                connect_clicked[sender, descriptor = self.candidate_endpoint.descriptor] => move |button| {
+                    sender.output(ConnectEndpointItemOutput::SetEndpointLocked(descriptor, button.is_active()));
+                },
+            },
+
+
             gtk::CheckButton {
-                #[watch]
                 set_label: Some(&self.candidate_endpoint.custom_or_display_name()),
-                #[watch]
-                #[block_signal(endpoint_toggled_handler)]
                 set_active: self.link_state.and_then(|link| link.is_connected()).unwrap_or(false),
-                #[watch]
-                #[block_signal(endpoint_toggled_handler)]
                 set_inconsistent: self.link_state.map(|link| link.is_connected().is_none()).unwrap_or(false),
 
                 connect_toggled[sender, descriptor = self.candidate_endpoint.descriptor] => move |check| {
