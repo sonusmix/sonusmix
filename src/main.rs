@@ -14,6 +14,11 @@ const APP_IDENTIFIER: &'static str = "org.sonusmix.sonusmix";
 const APP_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 fn main() {
+    // Setting env vars will be marked as unsafe in the 2024 edition, because it may race with
+    // other threads and there isn't really a way to synchronize it. So, we do it first thing in
+    // main(), before doing anything else that uses env variables or starting any other threads.
+    let _ = dotenvy::from_filename("dev-env");
+
     colog::default_builder()
         .filter_level(log::LevelFilter::Debug)
         .init();
@@ -21,7 +26,6 @@ fn main() {
 
     debug!("Hello, world!");
 
-    let _ = dotenv::from_filename("dev-env");
 
     let (tx, rx) = std::sync::mpsc::channel();
     let update_fn = state::SonusmixReducer::init(tx.clone());
