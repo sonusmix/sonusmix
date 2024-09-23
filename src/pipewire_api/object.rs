@@ -21,7 +21,7 @@ use pipewire::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::{identifier::Identifier, pod::DeviceActiveRoute, SONUSMIX_APP_NAME};
+use super::{identifier::NodeIdentifier, pod::DeviceActiveRoute, SONUSMIX_APP_NAME};
 
 #[derive(Error, Debug)]
 pub enum ObjectConvertError {
@@ -243,7 +243,7 @@ impl Device {
 #[derivative(Debug)]
 pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListener>> {
     pub id: u32,
-    pub identifier: Identifier,
+    pub identifier: NodeIdentifier,
     pub endpoint: EndpointId,
     pub ports: Vec<(u32, PortKind)>,
     // #[serde(skip)]
@@ -279,7 +279,7 @@ impl Node {
 
         Ok(Self {
             id: object.id,
-            identifier: Identifier::from_props(props),
+            identifier: NodeIdentifier::from_props(props),
             endpoint: if let Some(id) = props.get(*DEVICE_ID) {
                 EndpointId::Device {
                     id: id
@@ -327,7 +327,7 @@ impl Node {
     pub fn new_test(id: u32, endpoint: EndpointId) -> Node<(), ()> {
         Node {
             id,
-            identifier: Identifier::new_test(),
+            identifier: NodeIdentifier::new_test(),
             endpoint: EndpointId::Client(0),
             ports: Vec::new(),
             channel_volumes: Vec::new(),

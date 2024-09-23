@@ -4,13 +4,18 @@ mod reducer;
 use log::{error, warn};
 pub use reducer::SonusmixReducer;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+};
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::pipewire_api::{Graph, Link as PwLink, Node as PwNode, PortKind, ToPipewireMessage};
+use crate::pipewire_api::{
+    Graph, Link as PwLink, Node as PwNode, NodeIdentifier, PortKind, ToPipewireMessage,
+};
 
 #[derive(Debug, Clone)]
 pub enum SonusmixMsg {
@@ -31,8 +36,11 @@ pub struct SonusmixState {
     pub active_sources: Vec<EndpointDescriptor>,
     pub active_sinks: Vec<EndpointDescriptor>,
     pub endpoints: HashMap<EndpointDescriptor, Endpoint>,
-    pub candidates: HashMap<EndpointDescriptor, String>,
+    pub candidates: Vec<(u32, PortKind, NodeIdentifier)>,
     pub links: Vec<Link>,
+    /// Stores data for matching Pipewire nodes to persistent nodes. Entries are added to this map
+    /// when new nodes are detected and added to the pipewire
+    pub persistent_nodes: HashMap<PersistentNodeId, (NodeIdentifier, PortKind)>,
     pub applications: HashMap<ApplicationId, Application>,
     pub devices: HashMap<DeviceId, Device>,
 }
@@ -42,17 +50,15 @@ impl SonusmixState {
     /// to reflect those changes.
     fn update(&mut self, graph: &Graph, message: SonusmixMsg) -> Vec<ToPipewireMessage> {
         match message {
-            SonusmixMsg::AddEndpoint(EndpointDescriptor::EphemeralNode(id, kind)) => {
+            SonusmixMsg::AddEndpoint(descriptor @ EndpointDescriptor::EphemeralNode(id, kind)) => {
                 let Some(node) = graph.nodes.get(&id).filter(|node| node.has_port_kind(kind))
                 else {
                     return Vec::new();
                 };
 
-                let _ = self
-                    .candidates
-                    .remove(&EndpointDescriptor::EphemeralNode(id, kind));
+                self.candidates
+                    .retain(|(cand_id, cand_kind, _)| *cand_id != id || *cand_kind != kind);
 
-                let descriptor = EndpointDescriptor::EphemeralNode(id, kind);
                 let endpoint = Endpoint::new(descriptor)
                     .with_display_name(node.identifier.human_name().to_owned())
                     .with_icon_name(node.identifier.icon_name().to_string())
@@ -70,6 +76,55 @@ impl SonusmixState {
                 }
                 // TODO: Handle initializing groups when we add them
 
+                // If the node matches an existing application, add it as an exception
+                if let Some(application) = self.applications.values_mut().find(|application| {
+                    application.is_active && application.matches(&node.identifier, kind)
+                }) {
+                    application.exceptions.push(descriptor);
+                }
+
+                Vec::new()
+            }
+            SonusmixMsg::AddEndpoint(descriptor @ EndpointDescriptor::Application(id, kind)) => {
+                let Some(mut application) = self.applications.get(&id).cloned() else {
+                    // If the application doesn't exist, exit
+                    error!("Cannot add application {id:?} as it does not exist in the state");
+                    return Vec::new();
+                };
+
+                application.is_active = true;
+                match kind {
+                    PortKind::Source => self.active_sources.push(descriptor),
+                    PortKind::Sink => self.active_sinks.push(descriptor),
+                }
+
+                // Add any existing matching endpoints as exceptions
+                application.exceptions = self
+                    .active_sources
+                    .iter()
+                    .chain(self.active_sinks.iter())
+                    .copied()
+                    .filter(|endpoint| match endpoint {
+                        EndpointDescriptor::EphemeralNode(..)
+                        | EndpointDescriptor::PersistentNode(..) => self
+                            .resolve_endpoint(*endpoint, graph)
+                            .into_iter()
+                            .flatten()
+                            .any(|node| application.matches(&node.identifier, kind)),
+                        _ => false,
+                    })
+                    .collect();
+
+                // Put the modified application back into the map
+                self.applications.insert(id, application.clone());
+
+                // Add the endpoint. Properties will be handled by running a diff immediately after
+                // the update
+                self.endpoints.insert(
+                    descriptor,
+                    Endpoint::new(descriptor).with_display_name(application.name.clone()).with_icon_name(application.icon_name),
+                );
+
                 Vec::new()
             }
             SonusmixMsg::AddEndpoint(_) => todo!(),
@@ -84,19 +139,54 @@ impl SonusmixState {
                     .retain(|endpoint| *endpoint != endpoint_desc);
 
                 match endpoint_desc {
-                    EndpointDescriptor::EphemeralNode(id, _) => {
+                    EndpointDescriptor::EphemeralNode(id, kind) => {
                         let Some(node) = graph.nodes.get(&id) else {
                             return Vec::new();
                         };
-                        self.candidates
-                            .insert(endpoint_desc, node.identifier.human_name().to_string());
+                        self.candidates.push((id, kind, node.identifier.clone()));
+                    }
+                    EndpointDescriptor::Application(id, kind) => {
+                        // If there are still matching nodes, simply mark the application as
+                        // inactive. Otherwise, remove it.
+                        if self.resolve_endpoint(endpoint_desc, graph).is_some() {
+                            if let Some(application) = self.applications.get_mut(&id) {
+                                application.is_active = false;
+                            } else {
+                                error!("Application {id:?} did not exist in the state");
+                            }
+                        } else {
+                            self.applications.remove(&id);
+                        }
                     }
                     _ => todo!(),
                 };
 
-                // TODO: Handle cleanup specific to each endpoint type here. AFAIK the only type
-                // that needs extra handling will be group nodes (i.e., remove the backing
-                // Pipewire node)
+                // Remove the endpoint from any applications that might have it as an exception
+                for application in self.applications.values_mut() {
+                    application
+                        .exceptions
+                        .retain(|endpoint| *endpoint != endpoint_desc);
+                }
+
+                // Handle cleanup specific to each endpoint type
+                match endpoint_desc {
+                    EndpointDescriptor::Application(id, kind) => {
+                        let application = self.applications.get_mut(&id).expect(
+                            "An application should not have existed without a\
+                                corresponding entry in the applications map",
+                        );
+
+                        if graph.nodes.values().any(|node| {
+                            node.has_port_kind(kind) && application.matches(&node.identifier, kind)
+                        }) {
+                            application.is_active = false;
+                            application.exceptions.clear();
+                        } else {
+                            self.applications.remove(&id);
+                        }
+                    }
+                    _ => {}
+                }
 
                 Vec::new()
             }
@@ -393,10 +483,10 @@ impl SonusmixState {
             if let Some(nodes) = self.resolve_endpoint(endpoint, graph) {
                 // Mark the endpoint's nodes as seen
                 for node in &nodes {
-                    if endpoint.is_kind(PortKind::Source) {
+                    if endpoint.is_single() && endpoint.is_kind(PortKind::Source) {
                         remaining_nodes.remove(&(node.id, PortKind::Source));
                     }
-                    if endpoint.is_kind(PortKind::Sink) {
+                    if endpoint.is_single() && endpoint.is_kind(PortKind::Sink) {
                         remaining_nodes.remove(&(node.id, PortKind::Sink));
                     }
                 }
@@ -419,6 +509,7 @@ impl SonusmixState {
                 }
             }
         }
+
         // TODO: Check if any of the leftover Pipewire nodes correspond to group nodes. If so, tell
         // the backend to remove them.
 
@@ -430,12 +521,45 @@ impl SonusmixState {
             .into_iter()
             .filter_map(|(id, kind)| {
                 let node = graph.nodes.get(&id)?;
-                Some((
-                    EndpointDescriptor::EphemeralNode(id, kind),
-                    node.identifier.human_name().to_owned(),
-                ))
+                Some((id, kind, node.identifier.clone()))
             })
             .collect();
+
+        // Find all unique application name/binary/PortKind combinations. The map values store the
+        // icon names.
+        let mut applications = HashMap::<(String, String, PortKind), String>::new();
+        for node in graph.nodes.values() {
+            if let (Some(application), Some(binary)) = (
+                node.identifier.application_name.as_ref(),
+                node.identifier.binary_name.as_ref(),
+            ) {
+                if node.has_port_kind(PortKind::Source) {
+                    applications.insert(
+                        (application.clone(), binary.clone(), PortKind::Source),
+                        node.identifier.icon_name().to_owned(),
+                    );
+                }
+                if node.has_port_kind(PortKind::Sink) {
+                    applications.insert(
+                        (application.clone(), binary.clone(), PortKind::Sink),
+                        node.identifier.icon_name().to_owned(),
+                    );
+                }
+            }
+        }
+        // Remove any combinations that already exist
+        for application in self.applications.values() {
+            applications.remove(&(
+                application.name.clone(),
+                application.binary.clone(),
+                application.kind,
+            ));
+        }
+        // Add any remaining combinations as new inactive applications
+        for ((application_name, binary_name, kind), icon_name) in applications {
+            let application = Application::new_inactive(application_name, binary_name, icon_name, kind);
+            self.applications.insert(application.id, application);
+        }
 
         endpoint_nodes
     }
@@ -688,9 +812,54 @@ impl SonusmixState {
                     .filter(|node| node.has_port_kind(kind))
                     .map(|node| vec![node])
             }
-            EndpointDescriptor::PersistentNode(id, kind) => todo!(),
+            EndpointDescriptor::PersistentNode(id, kind) => {
+                // let (identifier, _) = self.persistent_nodes.get(&id)?;
+                // let nodes: Vec<&PwNode> = graph
+                //     .nodes
+                //     .values()
+                //     .filter(|node| node.identifier.matches(identifier))
+                //     .filter(|node| {
+                //         node.ports.iter().any(|port_id| {
+                //             graph
+                //                 .ports
+                //                 .get(port_id)
+                //                 .map(|port| port.kind == kind)
+                //                 .unwrap_or(false)
+                //         })
+                //     })
+                //     .collect();
+                // (!nodes.is_empty()).then_some(nodes)
+                todo!()
+            }
             EndpointDescriptor::GroupNode(id) => todo!(),
-            EndpointDescriptor::Application(id, kind) => todo!(),
+            EndpointDescriptor::Application(id, kind) => {
+                let application = self.applications.get(&id)?;
+                // Resolve all the exceptions. Exceptions should only be an ephemeral or persistent
+                // node.
+                let exceptions: Vec<&PwNode> = application
+                    .exceptions
+                    .iter()
+                    .filter_map(|exception| match exception {
+                        EndpointDescriptor::EphemeralNode(..)
+                        | EndpointDescriptor::PersistentNode(..) => {
+                            self.resolve_endpoint(*exception, graph)
+                        }
+                        _ => None,
+                    })
+                    .flatten()
+                    .collect();
+
+                let nodes: Vec<&PwNode> = graph
+                    .nodes
+                    .values()
+                    // Filter to matching nodes
+                    .filter(|node| application.matches(&node.identifier, kind))
+                    // Filter out nodes matching the exceptions
+                    .filter(|node| !exceptions.iter().any(|n| n.id == node.id))
+                    .collect();
+
+                (!nodes.is_empty()).then_some(nodes)
+            }
             EndpointDescriptor::Device(id, kind) => todo!(),
         }
     }
@@ -758,6 +927,27 @@ impl SonusmixState {
             }
         }
         return messages;
+    }
+
+    /// If a persistent node matching the given Pipewire node already exists, return a descriptor
+    /// for it. Otherwise, create one and return a descriptor for it.
+    fn get_persistent_node(&mut self, node: &PwNode, kind: PortKind) -> EndpointDescriptor {
+        let id = self
+            .persistent_nodes
+            .iter()
+            .find(|(_, (identifier, node_kind))| {
+                *node_kind == kind && identifier.matches(&node.identifier)
+            })
+            .map(|(id, _)| *id);
+        // If we found a matching persistent node, return it. Otherwise, create a new one.
+        if let Some(id) = id {
+            EndpointDescriptor::PersistentNode(id, kind)
+        } else {
+            let id = PersistentNodeId::new();
+            self.persistent_nodes
+                .insert(id, (node.identifier.clone(), kind));
+            EndpointDescriptor::PersistentNode(id, kind)
+        }
     }
 }
 
@@ -1004,13 +1194,20 @@ pub enum EndpointDescriptor {
 }
 
 impl EndpointDescriptor {
-    pub fn is_kind(self, kind: PortKind) -> bool {
+    pub fn is_kind(&self, kind: PortKind) -> bool {
         match self {
             Self::GroupNode(_) => true,
             Self::EphemeralNode(_, kind_)
             | Self::PersistentNode(_, kind_)
             | Self::Application(_, kind_)
-            | Self::Device(_, kind_) => kind_ == kind,
+            | Self::Device(_, kind_) => *kind_ == kind,
+        }
+    }
+
+    pub fn is_single(&self) -> bool {
+        match self {
+            Self::EphemeralNode(..) | Self::PersistentNode(..) | Self::GroupNode(_) => true,
+            Self::Application(..) | Self::Device(..) => false,
         }
     }
 }
@@ -1018,14 +1215,59 @@ impl EndpointDescriptor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct PersistentNodeId(Ulid);
 
+impl PersistentNodeId {
+    fn new() -> Self {
+        Self(Ulid::new())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct GroupNodeId(Ulid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct ApplicationId(Ulid);
+pub struct ApplicationId(Ulid);
+
+impl ApplicationId {
+    fn new() -> Self {
+        Self(Ulid::new())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Application;
+pub struct Application {
+    pub id: ApplicationId,
+    pub kind: PortKind,
+    pub is_active: bool,
+    pub name: String,
+    pub binary: String,
+    pub icon_name: String,
+    pub exceptions: Vec<EndpointDescriptor>,
+}
+
+impl Application {
+    fn new_inactive(
+        application_name: String,
+        binary: String,
+        icon_name: String,
+        kind: PortKind,
+    ) -> Self {
+        Self {
+            id: ApplicationId::new(),
+            kind,
+            is_active: false,
+            name: application_name,
+            binary,
+            icon_name,
+            exceptions: Vec::new(),
+        }
+    }
+
+    pub fn matches(&self, identifier: &NodeIdentifier, kind: PortKind) -> bool {
+        self.kind == kind
+            && identifier.application_name.as_ref() == Some(&self.name)
+            && identifier.binary_name.as_ref() == Some(&self.binary)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct DeviceId(Ulid);

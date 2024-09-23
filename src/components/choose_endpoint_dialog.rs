@@ -1,24 +1,26 @@
-use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::{collections::BTreeMap, i64};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use gtk::glib::Propagation;
+use itertools::Itertools;
 use log::debug;
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::{
-    pipewire_api::PortKind,
-    state::{Endpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState},
+    pipewire_api::{NodeIdentifier, PortKind},
+    state::{Application, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState},
 };
 
 pub struct ChooseEndpointDialog {
     sonusmix_state: Arc<SonusmixState>,
     list: PortKind,
-    endpoints: FactoryVecDeque<ChooseEndpointItem>,
+    nodes: FactoryVecDeque<ChooseEndpointItem>,
+    applications: FactoryVecDeque<ChooseEndpointItem>,
     visible: bool,
     search_text: String,
 }
@@ -44,6 +46,7 @@ impl SimpleComponent for ChooseEndpointDialog {
     type Output = Infallible;
 
     view! {
+        #[root]
         gtk::Window {
             set_modal: true,
             #[watch]
@@ -112,7 +115,7 @@ impl SimpleComponent for ChooseEndpointDialog {
                     }
                 },
 
-                if model.endpoints.is_empty() {
+                if model.nodes.is_empty() && model.applications.is_empty() {
                     gtk::Label {
                         set_vexpand: true,
                         set_valign: gtk::Align::Center,
@@ -129,34 +132,115 @@ impl SimpleComponent for ChooseEndpointDialog {
                         set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
                         set_propagate_natural_height: true,
 
-                        #[local_ref]
-                        endpoints_list_box -> gtk::ListBox {
-                            set_selection_mode: gtk::SelectionMode::None,
-                            set_show_separators: true,
-                        }
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+
+                            #[local_ref]
+                            applications_list_box -> gtk::ListBox {
+                                set_selection_mode: gtk::SelectionMode::None,
+                                set_show_separators: true,
+                                set_header_func[applications_label] => move |row, _| {
+                                    row.set_header(
+                                        // Set the header if the row is the first one
+                                        (row.index() == 0).then_some(&applications_label)
+                                    )
+                                },
+                            },
+                            #[local_ref]
+                            nodes_list_box -> gtk::ListBox {
+                                set_selection_mode: gtk::SelectionMode::None,
+                                set_show_separators: true,
+                                set_header_func[nodes_label] => move |row, _| {
+                                    row.set_header(
+                                        // Set the header if the row is the first one
+                                        (row.index() == 0).then_some(&nodes_label)
+                                    )
+                                },
+                            },
+                        },
                     }
                 }
             },
-        }
+        },
+        #[name(applications_label)]
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+
+            gtk::Label {
+                set_margin_vertical: 8,
+                set_css_classes: &["heading"],
+
+                set_label: "Applications",
+            },
+            // The easiest way to have a bolder separator is to just use multiple separators
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            },
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            },
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            },
+        },
+        #[name(nodes_label)]
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+
+            gtk::Label {
+                set_margin_vertical: 8,
+                set_css_classes: &["heading"],
+
+                #[watch]
+                set_label: match model.list {
+                    PortKind::Source => "Single Sources",
+                    PortKind::Sink => "Single Sinks",
+                },
+            },
+            // The easiest way to have a bolder separator is to just use multiple separators
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            },
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            },
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            },
+        },
     }
 
     fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
-        let sonusmix_state =
-            SonusmixReducer::subscribe(sender.input_sender(), ChooseEndpointDialogMsg::SonusmixState);
+        let sonusmix_state = SonusmixReducer::subscribe(
+            sender.input_sender(),
+            ChooseEndpointDialogMsg::SonusmixState,
+        );
 
-        let endpoints = FactoryVecDeque::builder()
+        let nodes = FactoryVecDeque::builder()
             .launch(gtk::ListBox::new())
-            .forward(sender.input_sender(), ChooseEndpointDialogMsg::EndpointChosen);
+            .forward(
+                sender.input_sender(),
+                ChooseEndpointDialogMsg::EndpointChosen,
+            );
+
+        let applications = FactoryVecDeque::builder()
+            .launch(gtk::ListBox::new())
+            .forward(
+                sender.input_sender(),
+                ChooseEndpointDialogMsg::EndpointChosen,
+            );
 
         let model = ChooseEndpointDialog {
             sonusmix_state,
             list: PortKind::Source,
-            endpoints,
+            nodes,
+            applications,
             visible: false,
             search_text: String::new(),
         };
 
-        let endpoints_list_box = model.endpoints.widget();
+        let nodes_list_box = model.nodes.widget();
+        let applications_list_box = model.applications.widget();
         let widgets = view_output!();
 
         ComponentParts { model, widgets }
@@ -199,50 +283,152 @@ impl ChooseEndpointDialog {
     }
 
     fn update_inactive_endpoints(&mut self) {
-        let active = match self.list {
-            PortKind::Source => self.sonusmix_state.active_sources.as_slice(),
-            PortKind::Sink => self.sonusmix_state.active_sinks.as_slice(),
-        };
-        let mut factory = self.endpoints.guard();
-        factory.clear();
+        // Get candidate nodes
+        let mut node_factory = self.nodes.guard();
+        node_factory.clear();
 
-        let mut endpoints = self
+        let mut nodes: Vec<&(u32, PortKind, NodeIdentifier)> = self
             .sonusmix_state
             .candidates
             .iter()
-            .filter(|(endpoint, _)| endpoint.is_kind(self.list))
-            .collect::<Vec<_>>();
+            .filter(|(_, kind, _)| *kind == self.list)
+            .collect();
+        nodes.sort_by(|a, b| a.2.human_name().cmp(&b.2.human_name()));
 
-        endpoints.sort_by(|a, b| a.1.cmp(&b.1));
+        // Get candidate applications
+        let mut application_factory = self.applications.guard();
+        application_factory.clear();
+
+        let mut applications: Vec<(&Application, Vec<&(u32, PortKind, NodeIdentifier)>)> = self
+            .sonusmix_state
+            .applications
+            .values()
+            .filter(|application| application.kind == self.list)
+            .map(|application| (application, Vec::new()))
+            .collect();
+        applications.sort_by_key(|(application, _)| &application.name);
+
+        // Sort and filter the nodes
         if !self.search_text.is_empty() {
             let fuzzy_matcher = SkimMatcherV2::default().smart_case();
             // Computing the match twice is simpler by far, and probably isn't a performance
             // issue. If it is, we can come back to this later.
-            endpoints.retain(|endpoint| {
+            nodes.retain(|node| {
                 fuzzy_matcher
-                    .fuzzy_match(endpoint.1, &self.search_text)
+                    .fuzzy_match(node.2.human_name(), &self.search_text)
                     .is_some()
             });
-            endpoints.sort_by_cached_key(|endpoint| {
+            nodes.sort_by_cached_key(|node| {
                 std::cmp::Reverse(
                     fuzzy_matcher
-                        .fuzzy_match(endpoint.1, &self.search_text)
-                        .expect("No non-matching endpoints should be remaining in the vec"),
+                        .fuzzy_match(node.2.human_name(), &self.search_text)
+                        .expect("No non-matching nodes should be remaining in the vec"),
                 )
-            })
+            });
         }
 
-        for (endpoint, name) in endpoints {
-            factory.push_back((*endpoint, name.clone()));
+        // Associate nodes with applications
+        // TODO: extract_if() would be perfect here, but requires nightly. If the performance
+        // difference is big enough, it might be worth it.
+        let mut i = 0;
+        while i < nodes.len() {
+            // If the node matches an application, remove it from nodes and add it to that
+            // application
+            if let Some((_, app_nodes)) = applications
+                .iter_mut()
+                .find(|(application, _)| application.matches(&nodes[i].2, nodes[i].1))
+            {
+                app_nodes.push(nodes.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+
+        // Sort and filter the applications
+        if !self.search_text.is_empty() {
+            let fuzzy_matcher = SkimMatcherV2::default().smart_case();
+
+            applications.retain(|(application, nodes)| {
+                // Keep an application if it matches, or if it has any matching nodes
+                !nodes.is_empty()
+                    || fuzzy_matcher
+                        .fuzzy_match(&application.name, &self.search_text)
+                        .is_some()
+            });
+            applications.sort_by_cached_key(|(application, nodes)| {
+                let search_name = std::iter::once(application.name.as_str())
+                    .chain(nodes.iter().map(|node| node.2.human_name()))
+                    .join(" ");
+                std::cmp::Reverse(
+                    fuzzy_matcher
+                        .fuzzy_match(&search_name, &self.search_text)
+                        .unwrap_or(i64::MIN),
+                )
+            });
+        }
+
+        for (id, kind, identifier) in nodes {
+            node_factory.push_back((
+                EndpointDescriptor::EphemeralNode(*id, *kind),
+                identifier.human_name().to_owned(),
+                identifier.details().map(ToOwned::to_owned),
+                ChooseEndpointItemMode::Normal,
+            ));
+        }
+
+        for (application, nodes) in applications {
+            if application.is_active && nodes.is_empty() {
+                continue;
+            }
+
+            application_factory.push_back((
+                EndpointDescriptor::Application(application.id, application.kind),
+                application.name.clone(),
+                None,
+                // Add active applications as text only so they display their children but cannot
+                // be selected
+                if application.is_active {
+                    ChooseEndpointItemMode::TextOnly
+                } else {
+                    ChooseEndpointItemMode::Normal
+                },
+            ));
+
+            for (id, kind, identifier) in nodes {
+                application_factory.push_back((
+                    EndpointDescriptor::EphemeralNode(*id, *kind),
+                    identifier.human_name().to_owned(),
+                    identifier.details().map(ToOwned::to_owned),
+                    ChooseEndpointItemMode::Nested,
+                ));
+            }
         }
     }
 }
 
-struct ChooseEndpointItem(EndpointDescriptor, String);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChooseEndpointItemMode {
+    Normal,
+    Nested,
+    TextOnly,
+}
+
+struct ChooseEndpointItem {
+    descriptor: EndpointDescriptor,
+    name: String,
+    details: Option<String>,
+    tooltip: String,
+    mode: ChooseEndpointItemMode,
+}
 
 #[relm4::factory]
 impl FactoryComponent for ChooseEndpointItem {
-    type Init = (EndpointDescriptor, String);
+    type Init = (
+        EndpointDescriptor,
+        String,
+        Option<String>,
+        ChooseEndpointItemMode,
+    );
     type Input = Infallible;
     type Output = EndpointDescriptor;
     type CommandOutput = ();
@@ -250,30 +436,79 @@ impl FactoryComponent for ChooseEndpointItem {
 
     view! {
         gtk::ListBoxRow {
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-                set_margin_end: 8,
-                set_spacing: 8,
+            set_tooltip: &self.tooltip,
 
-                gtk::Button {
-                    set_has_frame: false,
-                    set_icon_name: "list-add-symbolic",
-                    connect_clicked[sender, id = self.0] => move |_| {
-                        let _ = sender.output(id);
+            match self.mode {
+                ChooseEndpointItemMode::Normal | ChooseEndpointItemMode::Nested => gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_margin_end: 8,
+                    set_spacing: 8,
+                    set_margin_start: if self.mode == ChooseEndpointItemMode::Nested { 16 } else { 0 },
+
+                    gtk::Button {
+                        set_has_frame: false,
+                        set_icon_name: "list-add-symbolic",
+                        connect_clicked[sender, descriptor = self.descriptor] => move |_| {
+                            let _ = sender.output(descriptor);
+                        },
                     },
-                },
-                gtk::Label {
-                    set_label: &self.1,
+                    if let Some(details) = &self.details {
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+
+                            gtk::Label {
+                                set_halign: gtk::Align::Start,
+                                set_label: &self.name,
+                            },
+                            gtk::Label {
+                                set_halign: gtk::Align::Start,
+                                set_ellipsize: gtk::pango::EllipsizeMode::End,
+                                set_css_classes: &["caption", "dim-label"],
+
+                                #[watch]
+                                set_label: &details,
+                            },
+                        }
+                    } else {
+                        gtk::Label {
+                            set_label: &self.name,
+                        }
+                    }
+                }
+                ChooseEndpointItemMode::TextOnly => gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_margin_horizontal: 8,
+
+                    gtk::Label {
+                        set_label: &self.name,
+                    }
                 }
             }
         }
     }
 
     fn init_model(
-        (endpoint, name): (EndpointDescriptor, String),
+        (descriptor, name, details, mode): (
+            EndpointDescriptor,
+            String,
+            Option<String>,
+            ChooseEndpointItemMode,
+        ),
         _index: &DynamicIndex,
         _sender: FactorySender<Self>,
     ) -> Self {
-        Self(endpoint, name)
+        let tooltip = if let Some(details) = &details {
+            format!("{}\n\n{}", name, details)
+        } else {
+            name.clone()
+        };
+
+        Self {
+            descriptor,
+            name,
+            details,
+            tooltip,
+            mode,
+        }
     }
 }

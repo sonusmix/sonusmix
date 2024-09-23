@@ -19,6 +19,7 @@ pipewire = { git = "https://gitlab.freedesktop.org/pipewire/pipewire-rs.git", ve
 relm4 = "0.9.0"
 ron = "0.8.1"
 serde = { version = "1.0.209", features = ["derive"] }
+slotmap = { version = "1.0.7", features = ["serde"] }
 tempfile = "3.12.0"
 thiserror = "1.0.63"
 # Specify any 1.* version so we can ship the same version as relm4 already does

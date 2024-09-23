@@ -60,7 +60,8 @@ impl SonusmixReducer {
                     match message {
                         ReducerMsg::Update(msg) => {
                             let mut state = { reducer.state.read().0.as_ref().clone() };
-                            let messages = state.update(&graph, msg.clone());
+                            let mut messages = state.update(&graph, msg.clone());
+                            messages.extend(state.diff(&graph));
                             for message in messages {
                                 reducer.pw_sender.send(message);
                             }

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub use object::PortKind;
+pub use identifier::NodeIdentifier;
 
 const SONUSMIX_APP_NAME: &'static str = "sonusmix";
 
