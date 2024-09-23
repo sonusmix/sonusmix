@@ -125,7 +125,9 @@ impl FactoryComponent for Endpoint {
                             set_label: self.endpoint.custom_or_display_name(),
                             #[watch]
                             set_tooltip: self.endpoint.custom_or_display_name(),
-                            set_css_classes: &["heading"],
+                            #[watch]
+                            set_css_classes: if self.endpoint.is_placeholder
+                                { &["heading", "dim-label"] } else { &["heading"] },
 
                             add_controller = gtk::GestureClick {
                                 connect_released[sender] => move |_, num_presses, _, _| {
@@ -151,9 +153,13 @@ impl FactoryComponent for Endpoint {
                     set_css_classes: &["caption", "dim-label"],
 
                     #[watch]
-                    set_label: &self.endpoint.details.as_ref().map(|s| s.as_str()).unwrap_or(""),
+                    set_label: if self.endpoint.is_placeholder
+                        { "Inactive" } else
+                        { &self.endpoint.details.as_ref().map(|s| s.as_str()).unwrap_or("") },
                     #[watch]
-                    set_tooltip?: self.endpoint.details.as_ref(),
+                    set_tooltip: if self.endpoint.is_placeholder
+                        { "This endpoint is not active. You may reconnect or recreate this endpoint." } else
+                        { &self.endpoint.details.as_ref().map(|s| s.as_str()).unwrap_or("") }
                 },
                 gtk::Scale {
                     set_range: (0.0, 100.0),
