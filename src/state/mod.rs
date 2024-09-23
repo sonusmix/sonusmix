@@ -1,5 +1,5 @@
-mod reducer;
 mod persistence;
+mod reducer;
 
 use log::{error, warn};
 pub use reducer::SonusmixReducer;
@@ -43,16 +43,8 @@ impl SonusmixState {
     fn update(&mut self, graph: &Graph, message: SonusmixMsg) -> Vec<ToPipewireMessage> {
         match message {
             SonusmixMsg::AddEndpoint(EndpointDescriptor::EphemeralNode(id, kind)) => {
-                let Some(node) = graph.nodes.get(&id).filter(|node| {
-                    // Verify the node has ports of the correct kind
-                    node.ports.iter().any(|port_id| {
-                        graph
-                            .ports
-                            .get(port_id)
-                            .map(|port| port.kind == kind)
-                            .unwrap_or(false)
-                    })
-                }) else {
+                let Some(node) = graph.nodes.get(&id).filter(|node| node.has_port_kind(kind))
+                else {
                     return Vec::new();
                 };
 
@@ -382,18 +374,11 @@ impl SonusmixState {
             .values()
             .flat_map(|node| {
                 // Add the node as a source and a sink if it has source and sink ports, respectively
-                let has_ports = |kind| {
-                    node.ports.iter().any(|port_id| {
-                        graph
-                            .ports
-                            .get(port_id)
-                            .map(|port| port.kind == kind)
-                            .unwrap_or(false)
-                    })
-                };
                 [
-                    has_ports(PortKind::Source).then_some((node.id, PortKind::Source)),
-                    has_ports(PortKind::Sink).then_some((node.id, PortKind::Sink)),
+                    node.has_port_kind(PortKind::Source)
+                        .then_some((node.id, PortKind::Source)),
+                    node.has_port_kind(PortKind::Sink)
+                        .then_some((node.id, PortKind::Sink)),
                 ]
             })
             .flatten()
@@ -700,15 +685,7 @@ impl SonusmixState {
                 graph
                     .nodes
                     .get(&id)
-                    .filter(|node| {
-                        node.ports.iter().any(|port_id| {
-                            graph
-                                .ports
-                                .get(port_id)
-                                .map(|port| port.kind == kind)
-                                .unwrap_or(false)
-                        })
-                    })
+                    .filter(|node| node.has_port_kind(kind))
                     .map(|node| vec![node])
             }
             EndpointDescriptor::PersistentNode(id, kind) => todo!(),
@@ -1117,25 +1094,13 @@ fn are_nodes_connected(
     if source
         .ports
         .iter()
-        .filter(|id| {
-            graph
-                .ports
-                .get(&id)
-                .map(|port| port.kind == PortKind::Source)
-                .unwrap_or(false)
-        })
-        .all(|id| relevant_links.iter().any(|link| link.start_port == *id))
+        .filter(|(_, kind)| *kind == PortKind::Source)
+        .all(|(id, _)| relevant_links.iter().any(|link| link.start_port == *id))
         || sink
             .ports
             .iter()
-            .filter(|id| {
-                graph
-                    .ports
-                    .get(&id)
-                    .map(|port| port.kind == PortKind::Sink)
-                    .unwrap_or(false)
-            })
-            .all(|id| relevant_links.iter().any(|link| link.end_port == *id))
+            .filter(|(_, kind)| *kind == PortKind::Sink)
+            .all(|(id, _)| relevant_links.iter().any(|link| link.end_port == *id))
     {
         return Some(true);
     }
@@ -1180,7 +1145,7 @@ mod tests {
         let port_of_node = Port::new_test(2, 1, PortKind::Source);
         let mut pipewire_node = Node::new_test(1, EndpointId::Client(0));
 
-        pipewire_node.ports = Vec::from([2]);
+        pipewire_node.ports = vec![(2, PortKind::Source)];
 
         let pipewire_state = Graph {
             clients: HashMap::from([(0, client_of_node); 1]),
@@ -1217,12 +1182,12 @@ mod tests {
     fn advanced_graph_ephermal_node_setup() -> (Graph, SonusmixState) {
         let pipewire_state = {
             let mut source_node = Node::new_test(1, EndpointId::Client(2));
-            source_node.ports = Vec::from([3]);
+            source_node.ports = vec![(3, PortKind::Source)];
             let source_client = Client::new_test(2, false, Vec::from([1]));
             let source_port = Port::new_test(3, 1, PortKind::Source);
 
             let mut sink_node = Node::new_test(2, EndpointId::Client(4));
-            sink_node.ports = Vec::from([5]);
+            sink_node.ports = vec![(5, PortKind::Sink)];
             let sink_client = Client::new_test(4, false, Vec::from([2]));
             let sink_port = Port::new_test(5, 2, PortKind::Sink);
 

@@ -245,7 +245,7 @@ pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListene
     pub id: u32,
     pub identifier: Identifier,
     pub endpoint: EndpointId,
-    pub ports: Vec<u32>,
+    pub ports: Vec<(u32, PortKind)>,
     // #[serde(skip)]
     pub channel_volumes: Vec<f32>,
     pub mute: bool,
@@ -260,6 +260,12 @@ pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListene
 pub enum EndpointId {
     Device { id: u32, device_index: Option<i32> },
     Client(u32),
+}
+
+impl<P, L> Node<P, L> {
+    pub fn has_port_kind(&self, kind: PortKind) -> bool {
+        self.ports.iter().any(|(_, port_kind)| *port_kind == kind)
+    }
 }
 
 impl Node {
