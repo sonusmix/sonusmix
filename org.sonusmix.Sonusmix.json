@@ -1,0 +1,47 @@
+{
+    "id": "org.sonusmix.Sonusmix",
+    "runtime": "org.gnome.Platform",
+    "runtime-version": "46",
+    "sdk": "org.gnome.Sdk",
+    "sdk-extensions": [
+        "org.freedesktop.Sdk.Extension.rust-stable",
+        "org.freedesktop.Sdk.Extension.llvm16"
+    ],
+    "command": "sonusmix",
+    "finish-args": [
+        "--device=dri",
+        "--share=ipc",
+        "--socket=fallback-x11",
+        "--socket=wayland",
+        "--filesystem=xdg-run/pipewire-0",
+        "--filesystem=/usr/share/themes:ro"
+    ],
+    "build-options": {
+        "append-path": "/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm16/bin",
+        "prepend-ld-library-path": "/usr/lib/sdk/llvm16/lib",
+        "build-args": [
+            "--share=network"
+        ],
+        "env": {
+            "CARGO_HOME": "/run/build/sonusmix/cargo"
+        }
+    },
+    "modules": [
+        {
+            "name": "sonusmix",
+            "buildsystem": "simple",
+            "build-commands": [
+                "cargo build --release",
+                "install -Dm755 target/release/sonusmix /app/bin/sonusmix",
+                "install -Dm644 assets/org.sonusmix.Sonusmix.desktop /app/share/applications/org.sonusmix.Sonusmix.desktop",
+                "cp -rT assets/icons /app/share/icons"
+            ],
+            "sources": [
+                {
+                    "type": "dir",
+                    "path": "."
+                }
+            ]
+        }
+    ]
+}

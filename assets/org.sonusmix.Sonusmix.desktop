@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Sonusmix
+Exec=sonusmix
+Type=Application
+Icon=org.sonusmix.Sonusmix
+Categories=Audio;AudioVideo;System;Mixer;

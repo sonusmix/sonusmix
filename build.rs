@@ -9,7 +9,7 @@ fn main() {
         .arg("generate")
         .arg(
             PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("no manifest dir env var"))
-                .join("about.hbs"),
+                .join("assets/about.hbs"),
         )
         .output()
         .expect("cargo-about failed")

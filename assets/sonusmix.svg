@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="512"
+   height="512"
+   viewBox="0 0 512 512"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1">
+    <path
+       id="rect17"
+       style="fill:#7c57b1;fill-opacity:1;stroke-width:17.0424;stroke-linecap:square;paint-order:stroke markers fill"
+       d="m 176.00095,360.00002 c 80,-47.99999 80,47.99999 159.9981,0 V 472 h -159.9981 z" />
+    <path
+       id="rect13"
+       style="fill:#595959;fill-opacity:1;stroke-width:48;paint-order:stroke markers fill"
+       d="m 72,272 h 40 a 24,24 45 0 1 24,24 v 128 a 24,24 135 0 1 -24,24 H 72 Z"
+       transform="matrix(1.125,0,0,1,-17,0)" />
+    <path
+       id="rect13-3"
+       style="fill:#595959;fill-opacity:1;stroke-width:48;paint-order:stroke markers fill"
+       d="m 72,272 h 40 a 24,24 45 0 1 24,24 v 128 a 24,24 135 0 1 -24,24 H 72 Z"
+       transform="matrix(-1.125,0,0,1,529,0)" />
+    <path
+       id="path10"
+       style="color:#000000;fill:#d04844;fill-opacity:1;-inkscape-stroke:none;paint-order:stroke markers fill"
+       d="M 256,24 C 215.93672,24 175.87385,34.357038 140,55.070312 68.252278,96.496868 24.000002,173.14829 24,256 v 168 a 24,24 45 0 0 24,24 H 72 V 256 h 0.002 c 2e-6,-65.78059 35.03761,-126.46975 92,-159.359375 56.96238,-32.889611 127.03371,-32.889613 183.9961,0 56.96238,32.889625 92,93.578785 92,159.359375 H 440 v 192 h 24 a 24,24 135 0 0 24,-24 V 256 C 488,173.14829 443.74772,96.496868 372,55.070312 336.12614,34.357039 296.06328,24 256,24 Z" />
+    <path
+       id="rect15"
+       style="color:#000000;fill:#8d8d8d;stroke-linecap:square;-inkscape-stroke:none;paint-order:stroke markers fill"
+       d="m 144,240 a 8,8 45 0 0 8,8 8,8 45 0 1 8,8 v 208 c 0,13.25483 10.74517,24 24,24 h 144 c 13.25483,0 24,-10.74517 24,-24 V 256 a 8,8 135 0 1 8,-8 8,8 135 0 0 8,-8 8,8 45 0 0 -8,-8 24,24 135 0 0 -24,24 v 208 c 0,4.41828 -3.58172,8 -8,8 H 184 c -4.41828,0 -8,-3.58172 -8,-8 V 256 a 24,24 45 0 0 -24,-24 8,8 135 0 0 -8,8 z" />
+    <circle
+       style="fill:#7c57b1;fill-opacity:1;stroke:none;stroke-width:16;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+       id="path20"
+       cx="224"
+       cy="280"
+       r="32" />
+    <circle
+       style="fill:#7c57b1;fill-opacity:1;stroke:none;stroke-width:16;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+       id="path20-7"
+       cx="280"
+       cy="208"
+       r="24" />
+    <circle
+       style="fill:#7c57b1;fill-opacity:1;stroke:none;stroke-width:16;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+       id="path20-7-2"
+       cx="352"
+       cy="168"
+       r="16" />
+  </g>
+</svg>

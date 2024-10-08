@@ -27,3 +27,11 @@ target/
 
 # JetBrains IDE files
 .idea/
+
+# Flatpak builder
+.flatpak-builder/
+flatpak-builddir/
+flatpak-repo/
+
+# Icons will be dynamically generated
+assets/icons

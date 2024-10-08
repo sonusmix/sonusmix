@@ -10,7 +10,7 @@ use pipewire_api::PipewireHandle;
 use relm4::RelmApp;
 use state::SonusmixReducer;
 
-const APP_IDENTIFIER: &'static str = "org.sonusmix.sonusmix";
+const APP_IDENTIFIER: &'static str = "org.sonusmix.Sonusmix";
 const APP_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 fn main() {
