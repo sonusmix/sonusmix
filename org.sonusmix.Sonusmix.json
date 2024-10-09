@@ -13,8 +13,7 @@
         "--share=ipc",
         "--socket=fallback-x11",
         "--socket=wayland",
-        "--filesystem=xdg-run/pipewire-0",
-        "--filesystem=/usr/share/themes:ro"
+        "--filesystem=xdg-run/pipewire-0"
     ],
     "build-options": {
         "append-path": "/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm16/bin",
