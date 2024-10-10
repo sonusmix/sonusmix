@@ -1,0 +1,157 @@
+[config]
+skip_core_tasks = true
+
+[env]
+APP_ID = "org.sonusmix.Sonusmix"
+
+[tasks.default]
+alias = "build"
+
+
+[tasks.clean]
+run_task = { name = [
+    "cargo-clean",
+    "clean-icons",
+    "clean-flatpak",
+    "clean-appimage",
+] }
+
+[tasks.cargo-clean]
+command = "cargo"
+args = ["clean"]
+
+[tasks.clean-icons]
+command = "rm"
+args = ["-rf", "./assets/icons"]
+
+[tasks.clean-flatpak]
+command = "rm"
+args = ["-rf", ".flatpak-builder", "./flatpak-builddir", "./flatpak-repo"]
+
+[tasks.clean-appimage]
+command = "rm"
+args = [
+    "-rf",
+    "AppDir",
+    "appimagekit-bin",
+    "${APP_ID}-${CARGO_MAKE_CRATE_VERSION}.AppImage",
+]
+
+
+[tasks.build]
+condition = { files_modified = { input = [
+    "./Cargo.toml",
+    "./src/**/*.rs",
+    "./assets/**/*",
+], output = [
+    "./target/release/sonusmix",
+] } }
+script = '''
+cargo build --release
+
+# If Nix inserted a weird interpreter header, set it to the normal linux ld file
+if [ $(patchelf --print-interpreter ./target/release/sonusmix | grep nix) ]; then
+    patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 ./target/release/sonusmix
+fi
+'''
+
+[tasks.run]
+command = "./target/release/sonusmix"
+dependencies = ["build"]
+
+
+[tasks.build-icons]
+env = { "INPUT_SVG" = "./assets/sonusmix.svg", "ICON_SIZES" = "512 256 128 64 48 32 24 16" }
+script = '''
+rm -r ./assets/icons | true
+mkdir -p ./assets/icons/hicolor/scalable/apps
+cp "${INPUT_SVG}" "./assets/icons/hicolor/scalable/apps/${APP_ID}.svg"
+for SIZE in ${ICON_SIZES}; do
+    ICON_DIR="./assets/icons/hicolor/${SIZE}x${SIZE}/apps/"
+    mkdir -p "$ICON_DIR"
+    resvg -w "$SIZE" -h "$SIZE" "${INPUT_SVG}" "$ICON_DIR/${APP_ID}.png"
+done
+'''
+
+
+[tasks.build-flatpak]
+dependencies = ["build-icons"]
+command = "flatpak-builder"
+args = [
+    "--user",
+    "--force-clean",
+    "--install-deps-from=flathub",
+    "--repo=flatpak-repo",
+    "./flatpak-builddir",
+    "./org.sonusmix.Sonusmix.json",
+]
+
+[tasks.install-flatpak]
+command = "flatpak"
+args = [
+    "install",
+    "--user",
+    "--reinstall",
+    "./flatpak-repo",
+    "org.sonusmix.Sonusmix",
+]
+
+
+[tasks.appimagetool]
+# Download appimagetool and add it to PATH if it's not already available
+condition_script = ['[ ! -x "$(command -v appimagetool)" ]']
+install_script = '''
+if [ ! -f appimagekit-bin/appimagetool ]; then
+    echo "downloading appimagetool AppImage"
+
+    mkdir appimagekit-bin | true
+    wget -O appimagekit-bin/appimagetool \
+        "https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage"
+    chmod +x appimagekit-bin/appimagetool
+    wget -O appimagekit-bin/AppRun \
+        "https://github.com/AppImage/AppImageKit/releases/download/13/AppRun-x86_64"
+    chmod +x appimagekit-bin/AppRun
+fi
+'''
+env = { "PATH" = "${PATH}:${CARGO_MAKE_WORKING_DIRECTORY}/appimagekit-bin" }
+
+[tasks.apprun]
+# Download AppRun from AppImageKit if it doesn't already exist
+condition = { files_not_exist = ["./appimagekit-bin/AppRun"] }
+install_script = '''
+echo "downloading AppRun from AppImageKit"
+
+mkdir appimagekit-bin | true
+wget -O appimagekit-bin/AppRun \
+    "https://github.com/AppImage/AppImageKit/releases/download/13/AppRun-x86_64"
+chmod +x appimagekit-bin/AppRun
+'''
+
+[tasks.build-appimage]
+dependencies = ["build-icons", "appimagetool", "apprun", "build"]
+script = '''
+rm -rf AppDir | true
+
+# Copy binary
+mkdir -p ./AppDir/usr/bin
+cp ./target/release/sonusmix ./AppDir/usr/bin/
+
+# Copy AppRun
+cp ./appimagekit-bin/AppRun ./AppDir/
+
+# Copy desktop file
+mkdir -p ./AppDir/usr/share/applications
+cp "./assets/${APP_ID}.desktop" ./AppDir/usr/share/applications/
+ln -s "usr/share/applications/${APP_ID}.desktop" ./AppDir/
+
+# Copy icons
+cp -r ./assets/icons ./AppDir/usr/share/
+ln -s "usr/share/icons/hicolor/512x512/apps/${APP_ID}.png" ./AppDir/.DirIcon
+ln -s "usr/share/icons/hicolor/scalable/apps/${APP_ID}.svg" ./AppDir/
+
+# appimagetool has a weird bug with SOURCE_DATE_EPOCH
+unset SOURCE_DATE_EPOCH
+
+# Create AppImage
+appimagetool ./AppDir "${APP_ID}-${CARGO_MAKE_CRATE_VERSION}.AppImage"
+'''

@@ -33,10 +33,11 @@ target/
 flatpak-builddir/
 flatpak-repo/
 
-# appimage-builder
+# AppImage build process
+appimagekit-bin/
 AppDir/
 *.AppImage
 *.AppImage.zsync
 
-# Icons will be dynamically generated
+# Icon PNGs will be dynamically generated
 assets/icons
