@@ -61,6 +61,11 @@ dependencies = ["build"]
 
 
 [tasks.build-icons]
+condition = { files_modified = { input = [
+    "./assets/sonusmix.svg",
+], output = [
+    "./assets/icons/**/*",
+] } }
 env = { "INPUT_SVG" = "./assets/sonusmix.svg", "ICON_SIZES" = "512 256 128 64 48 32 24 16" }
 script = '''
 rm -r ./assets/icons | true
