@@ -383,7 +383,7 @@ impl ChooseEndpointDialog {
 
             application_factory.push_back((
                 EndpointDescriptor::Application(application.id, application.kind),
-                application.name.clone(),
+                application.name_with_tag(),
                 None,
                 // Add active applications as text only so they display their children but cannot
                 // be selected

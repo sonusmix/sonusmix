@@ -122,7 +122,9 @@ impl SonusmixState {
                 // the update
                 self.endpoints.insert(
                     descriptor,
-                    Endpoint::new(descriptor).with_display_name(application.name.clone()).with_icon_name(application.icon_name),
+                    Endpoint::new(descriptor)
+                        .with_display_name(application.name_with_tag())
+                        .with_icon_name(application.icon_name),
                 );
 
                 Vec::new()
@@ -542,7 +544,8 @@ impl SonusmixState {
         }
         // Add any remaining combinations as new inactive applications
         for ((application_name, binary_name, kind), icon_name) in applications {
-            let application = Application::new_inactive(application_name, binary_name, icon_name, kind);
+            let application =
+                Application::new_inactive(application_name, binary_name, icon_name, kind);
             self.applications.insert(application.id, application);
         }
 
@@ -1251,6 +1254,11 @@ impl Application {
         self.kind == kind
             && identifier.application_name.as_ref() == Some(&self.name)
             && identifier.binary_name.as_ref() == Some(&self.binary)
+    }
+
+    pub fn name_with_tag(&self) -> String {
+        // Uses unicode "fullwidth" brackets which I personally think look nicer
+        format!("［App］{}", self.name)
     }
 }
 
