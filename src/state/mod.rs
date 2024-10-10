@@ -1,7 +1,7 @@
 mod persistence;
 mod reducer;
 
-use log::{error, warn};
+use log::{debug, error, warn};
 pub use reducer::SonusmixReducer;
 
 use std::{
@@ -168,23 +168,8 @@ impl SonusmixState {
                         .retain(|endpoint| *endpoint != endpoint_desc);
                 }
 
-                // Handle cleanup specific to each endpoint type
+                // Handle Pipewire cleanup specific to each endpoint type
                 match endpoint_desc {
-                    EndpointDescriptor::Application(id, kind) => {
-                        let application = self.applications.get_mut(&id).expect(
-                            "An application should not have existed without a\
-                                corresponding entry in the applications map",
-                        );
-
-                        if graph.nodes.values().any(|node| {
-                            node.has_port_kind(kind) && application.matches(&node.identifier, kind)
-                        }) {
-                            application.is_active = false;
-                            application.exceptions.clear();
-                        } else {
-                            self.applications.remove(&id);
-                        }
-                    }
                     _ => {}
                 }
 
