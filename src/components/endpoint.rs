@@ -18,6 +18,8 @@ pub struct Endpoint {
     renaming: bool,
     connect_endpoints: Controller<ConnectEndpoints>,
     custom_name_buffer: gtk::EntryBuffer,
+    details_short: String,
+    details_long: String,
 }
 
 impl Endpoint {
@@ -155,11 +157,11 @@ impl FactoryComponent for Endpoint {
                     #[watch]
                     set_label: if self.endpoint.is_placeholder
                         { "Inactive" } else
-                        { &self.endpoint.details.as_ref().map(|s| s.as_str()).unwrap_or("") },
+                        { &self.details_short },
                     #[watch]
                     set_tooltip: if self.endpoint.is_placeholder
                         { "This endpoint is not active. You may reconnect or recreate this endpoint." } else
-                        { &self.endpoint.details.as_ref().map(|s| s.as_str()).unwrap_or("") }
+                        { &self.details_long }
                 },
                 gtk::Scale {
                     set_range: (0.0, 100.0),
@@ -260,6 +262,8 @@ impl FactoryComponent for Endpoint {
             .get(&endpoint_desc)
             .expect("endpoint component failed to find matching endpoint on init")
             .clone();
+        let details_short = endpoint.details_short();
+        let details_long = endpoint.details_long();
 
         let connect_endpoints = ConnectEndpoints::builder()
             .launch(endpoint.descriptor)
@@ -272,6 +276,8 @@ impl FactoryComponent for Endpoint {
             renaming: false,
             connect_endpoints,
             custom_name_buffer,
+            details_short,
+            details_long,
         }
     }
 
@@ -316,6 +322,8 @@ impl FactoryComponent for Endpoint {
             EndpointMsg::UpdateState(state) => {
                 if let Some(endpoint) = state.endpoints.get(&self.endpoint.descriptor) {
                     self.endpoint = endpoint.clone();
+                    self.details_short = self.endpoint.details_short();
+                    self.details_long = self.endpoint.details_long();
                 }
             }
             EndpointMsg::Volume(volume) => SonusmixReducer::emit(SonusmixMsg::SetVolume(

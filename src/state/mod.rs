@@ -62,7 +62,13 @@ impl SonusmixState {
                 let endpoint = Endpoint::new(descriptor)
                     .with_display_name(node.identifier.human_name().to_owned())
                     .with_icon_name(node.identifier.icon_name().to_string())
-                    .with_details(node.identifier.details().map(ToOwned::to_owned))
+                    .with_details(
+                        node.identifier
+                            .details()
+                            .map(ToOwned::to_owned)
+                            .into_iter()
+                            .collect(),
+                    )
                     .with_volume(
                         average_volumes(&node.channel_volumes),
                         !node.channel_volumes.iter().all_equal(),
@@ -480,11 +486,13 @@ impl SonusmixState {
 
                 if let Some(endpoint) = self.endpoints.get_mut(&endpoint) {
                     // Copy the details from the first resolved node that has any
-                    endpoint.details = nodes
+                    let mut details: Vec<String> = nodes
                         .iter()
                         .filter_map(|node| node.identifier.details())
-                        .next()
-                        .map(ToOwned::to_owned);
+                        .map(ToOwned::to_owned)
+                        .collect();
+                    details.sort_unstable();
+                    endpoint.details = details;
 
                     endpoint.is_placeholder = false;
                 }
@@ -946,7 +954,7 @@ pub struct Endpoint {
     pub display_name: String,
     pub custom_name: Option<String>,
     pub icon_name: String,
-    pub details: Option<String>,
+    pub details: Vec<String>,
     pub volume: f32,
     /// This will be true if all of the channels across all of the nodes this endpoint represents
     /// are not set to the same volume. This state is allowed, but the user will be notified of it,
@@ -965,7 +973,7 @@ impl Endpoint {
             display_name: String::new(),
             custom_name: None,
             icon_name: String::new(),
-            details: None,
+            details: Vec::new(),
             volume: 0.0,
             volume_mixed: false,
             volume_locked_muted: VolumeLockMuteState::UnmutedUnlocked,
@@ -983,7 +991,7 @@ impl Endpoint {
         self
     }
 
-    fn with_details(mut self, details: Option<String>) -> Self {
+    fn with_details(mut self, details: Vec<String>) -> Self {
         self.details = details;
         self
     }
@@ -1005,6 +1013,17 @@ impl Endpoint {
 
     pub fn custom_or_display_name(&self) -> &str {
         self.custom_name.as_ref().unwrap_or(&self.display_name)
+    }
+
+    pub fn details_short(&self) -> String {
+        match self.details.get(0) {
+            Some(details) => details.clone(),
+            None => String::new(),
+        }
+    }
+
+    pub fn details_long(&self) -> String {
+        self.details.join("\n\n")
     }
 
     #[cfg(test)]
