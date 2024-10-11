@@ -1,6 +1,5 @@
-use std::{cell::OnceCell, sync::OnceLock};
+use std::sync::OnceLock;
 
-use log::debug;
 use pipewire::{keys::*, spa::utils::dict::DictRef};
 use serde::{Deserialize, Serialize};
 
@@ -113,14 +112,15 @@ impl NodeIdentifier {
         })
     }
 
+    #[allow(dead_code)] // This will be used for persistent nodes
     pub fn identifier(&self) -> &str {
         self.identifier_.get_or_init(|| {
             self.node_name
                 .as_ref()
-                .or_else(|| self.object_path.as_ref())
-                .or_else(|| self.node_description.as_ref())
-                .or_else(|| self.node_nick.as_ref())
-                .map(String::clone)
+                .or(self.object_path.as_ref())
+                .or(self.node_description.as_ref())
+                .or(self.node_nick.as_ref())
+                .cloned()
                 .unwrap_or_default()
         })
     }
@@ -129,11 +129,11 @@ impl NodeIdentifier {
         self.human_name_.get_or_init(|| {
             self.node_description
                 .as_ref()
-                .or_else(|| self.node_nick.as_ref())
-                .or_else(|| self.application_name.as_ref())
-                .or_else(|| self.route_name.as_ref())
-                .or_else(|| self.node_name.as_ref())
-                .map(String::clone)
+                .or(self.node_nick.as_ref())
+                .or(self.application_name.as_ref())
+                .or(self.route_name.as_ref())
+                .or(self.node_name.as_ref())
+                .cloned()
                 .unwrap_or_default()
         })
     }
@@ -143,8 +143,8 @@ impl NodeIdentifier {
             .get_or_init(|| {
                 self.route_name
                     .as_ref()
-                    .or_else(|| self.media_name.as_ref())
-                    .or_else(|| self.media_title.as_ref())
+                    .or(self.media_name.as_ref())
+                    .or(self.media_title.as_ref())
                     .or_else(|| {
                         self.application_name
                             .as_ref()
@@ -158,6 +158,7 @@ impl NodeIdentifier {
     }
 
     #[rustfmt::skip] // Rustfmt inconsistently expands the lines and it's really hard to read
+    #[allow(dead_code)] // This will be used for persistent nodes
     pub fn matches(&self, other: &NodeIdentifier) -> bool {
         // Compare the first property that exist on both identifiers
         let ids = self.node_name.as_ref().zip(other.node_name.as_ref())

@@ -1,21 +1,10 @@
-use std::{
-    fmt::Debug,
-    rc::Rc,
-    str::FromStr,
-    sync::{Arc, Mutex},
-};
+use std::{fmt::Debug, str::FromStr};
 
 use derivative::Derivative;
-use log::debug;
 use pipewire::{
     keys::*,
     registry::{GlobalObject, Registry},
-    spa::{
-        param::ParamType,
-        pod::{deserialize::PodDeserializer, object, Property, Value, ValueArray},
-        sys::SPA_PROP_channelVolumes,
-        utils::{dict::DictRef, SpaTypes},
-    },
+    spa::utils::dict::DictRef,
     types::ObjectType,
 };
 use serde::{Deserialize, Serialize};
@@ -132,7 +121,7 @@ pub struct Client<P = pipewire::client::Client> {
     pub is_sonusmix: bool,
     pub nodes: Vec<u32>,
     #[serde(skip)]
-    pub(super) proxy: P,
+    pub(super) _proxy: P,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,7 +150,7 @@ impl Client<pipewire::client::Client> {
             name: name.to_owned(),
             is_sonusmix: name == SONUSMIX_APP_NAME,
             nodes: Vec::new(),
-            proxy,
+            _proxy: proxy,
         })
     }
 
@@ -171,7 +160,7 @@ impl Client<pipewire::client::Client> {
             name: self.name.clone(),
             is_sonusmix: self.is_sonusmix,
             nodes: self.nodes.clone(),
-            proxy: (),
+            _proxy: (),
         }
     }
 
@@ -182,7 +171,7 @@ impl Client<pipewire::client::Client> {
             name: "TESTING CLIENT".to_string(),
             is_sonusmix,
             nodes,
-            proxy: (),
+            _proxy: (),
         }
     }
 }
@@ -328,7 +317,7 @@ impl Node {
         Node {
             id,
             identifier: NodeIdentifier::new_test(),
-            endpoint: EndpointId::Client(0),
+            endpoint,
             ports: Vec::new(),
             channel_volumes: Vec::new(),
             mute: false,
@@ -348,7 +337,7 @@ pub struct Port<P = pipewire::port::Port> {
     pub kind: PortKind,
     pub links: Vec<u32>,
     #[serde(skip)]
-    pub(super) proxy: P,
+    pub(super) _proxy: P,
 }
 
 impl Port {
@@ -373,7 +362,7 @@ impl Port {
             node: object.parse_fields([*NODE_ID], "integer")?,
             kind: object.parse_fields([*PORT_DIRECTION], "'in' or 'out'")?,
             links: Vec::new(),
-            proxy,
+            _proxy: proxy,
         })
     }
 
@@ -385,7 +374,7 @@ impl Port {
             node: self.node,
             kind: self.kind,
             links: self.links.clone(),
-            proxy: (),
+            _proxy: (),
         }
     }
 
@@ -398,7 +387,7 @@ impl Port {
             node,
             kind,
             links: Vec::new(),
-            proxy: (),
+            _proxy: (),
         }
     }
 }

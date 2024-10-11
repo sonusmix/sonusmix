@@ -1,24 +1,18 @@
-use pipewire::{
-    spa::{
-        param::ParamType,
-        pod::{object, Object, Pod, Property, Value, ValueArray},
-        sys::{
-            SPA_PARAM_ROUTE_device, SPA_PARAM_ROUTE_index, SPA_PARAM_ROUTE_info,
-            SPA_PARAM_ROUTE_props, SPA_PARAM_ROUTE_save, SPA_PROP_channelVolumes, SPA_PROP_mute,
-        },
-        utils::SpaTypes,
+use pipewire::spa::{
+    param::ParamType,
+    pod::{object, Pod, Property, Value, ValueArray},
+    sys::{
+        SPA_PARAM_ROUTE_device, SPA_PARAM_ROUTE_index, SPA_PARAM_ROUTE_info, SPA_PARAM_ROUTE_props,
+        SPA_PARAM_ROUTE_save, SPA_PROP_channelVolumes, SPA_PROP_mute,
     },
-    sys::PW_KEY_DEVICE_ICON_NAME,
+    utils::SpaTypes,
 };
 
 pub mod parse {
     use std::{ffi::CStr, io::Cursor};
 
-    use pipewire::spa::{
-        pod::{
-            deserialize::PodDeserializer, serialize::PodSerializer, Object, Pod, Value, ValueArray,
-        },
-        sys::SPA_KEY_DEVICE_ICON_NAME,
+    use pipewire::spa::pod::{
+        deserialize::PodDeserializer, serialize::PodSerializer, Object, Pod, Value, ValueArray,
     };
 
     pub trait PodExt {
@@ -136,7 +130,7 @@ pub mod parse {
         fn get_key(&self, key: u32) -> Option<&Value> {
             self.properties
                 .iter()
-                .find_map(|prop| (prop.key == key).then(|| &prop.value))
+                .find_map(|prop| (prop.key == key).then_some(&prop.value))
         }
     }
 
@@ -201,7 +195,7 @@ pub fn build_node_mute_pod(mute: bool) -> (ParamType, PodBytes) {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct DeviceActiveRoute {
+pub struct DeviceActiveRoute {
     pub route_index: i32,
     pub device_index: i32,
     pub icon_name: Option<String>,

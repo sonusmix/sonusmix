@@ -2,9 +2,9 @@ use std::{convert::Infallible, io::Write, process::Command};
 
 use gtk::prelude::*;
 use relm4::prelude::*;
-use tempfile::{NamedTempFile, TempPath};
+use tempfile::TempPath;
 
-const LICENSE_STRING: &'static str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/LICENSE"));
+const LICENSE_STRING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/LICENSE"));
 
 pub struct AboutComponent;
 
@@ -38,7 +38,7 @@ impl SimpleComponent for AboutComponent {
     }
 }
 
-const THIRD_PARTY_LICENSES_HTML: &'static str =
+const THIRD_PARTY_LICENSES_HTML: &str =
     include_str!(concat!(env!("OUT_DIR"), "/third_party_licenses.html"));
 
 /// Write the third-party licenses html to a temporary file and open it using `xdg-open`. Returns a

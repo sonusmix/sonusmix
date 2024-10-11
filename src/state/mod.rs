@@ -1,13 +1,10 @@
 mod persistence;
 mod reducer;
 
-use log::{debug, error, warn};
+use log::error;
 pub use reducer::SonusmixReducer;
 
-use std::{
-    cmp::Ordering,
-    collections::{HashMap, HashSet},
-};
+use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -137,10 +134,11 @@ impl SonusmixState {
             }
             SonusmixMsg::AddEndpoint(_) => todo!(),
             SonusmixMsg::RemoveEndpoint(endpoint_desc) => {
-                let Some(endpoint) = self.endpoints.remove(&endpoint_desc) else {
-                    // If the endpoint doesn't exist, exit
+                if self.endpoints.remove(&endpoint_desc).is_none() {
+                    error!("Cannot remove endpoint {endpoint_desc:?} as it does not exist");
                     return Vec::new();
-                };
+                }
+
                 self.active_sources
                     .retain(|endpoint| *endpoint != endpoint_desc);
                 self.active_sinks
@@ -153,7 +151,7 @@ impl SonusmixState {
                         };
                         self.candidates.push((id, kind, node.identifier.clone()));
                     }
-                    EndpointDescriptor::Application(id, kind) => {
+                    EndpointDescriptor::Application(id, _kind) => {
                         // If there are still matching nodes, simply mark the application as
                         // inactive. Otherwise, remove it.
                         if self.resolve_endpoint(endpoint_desc, graph).is_some() {
@@ -177,6 +175,7 @@ impl SonusmixState {
                 }
 
                 // Handle Pipewire cleanup specific to each endpoint type
+                #[allow(clippy::match_single_binding)]
                 match endpoint_desc {
                     _ => {}
                 }
@@ -281,7 +280,7 @@ impl SonusmixState {
                             )
                         })
                         .collect();
-                    if messages.len() > 0 {
+                    if !messages.is_empty() {
                         endpoint.volume_pending = true;
                     }
                     messages
@@ -386,7 +385,7 @@ impl SonusmixState {
                     link_position.map(|idx| (idx, self.links[idx].state)),
                     locked,
                 ) {
-                    (Some((idx, LinkState::PartiallyConnected)), true) => {
+                    (Some((_idx, LinkState::PartiallyConnected)), true) => {
                         // If trying to lock in any way while partially connected.
                         // Should be handled by the UI (to show the user not being able to lock).
                         error!("Cannot lock partially connected link");
@@ -440,7 +439,7 @@ impl SonusmixState {
     // after updates from the backend.
     fn diff(&mut self, graph: &Graph) -> Vec<ToPipewireMessage> {
         let endpoint_nodes = self.diff_nodes(graph);
-        let mut messages = self.diff_properties(graph, &endpoint_nodes);
+        let mut messages = self.diff_properties(&endpoint_nodes);
         messages.extend(self.diff_links(graph, &endpoint_nodes));
         messages
     }
@@ -498,10 +497,8 @@ impl SonusmixState {
                 }
 
                 endpoint_nodes.insert(endpoint, nodes);
-            } else {
-                if let Some(endpoint) = self.endpoints.get_mut(&endpoint) {
-                    endpoint.is_placeholder = true;
-                }
+            } else if let Some(endpoint) = self.endpoints.get_mut(&endpoint) {
+                endpoint.is_placeholder = true;
             }
         }
 
@@ -564,7 +561,6 @@ impl SonusmixState {
     /// or the other appropriately based on whether the endpoint is locked.
     fn diff_properties(
         &mut self,
-        graph: &Graph,
         endpoint_nodes: &HashMap<EndpointDescriptor, Vec<&PwNode>>,
     ) -> Vec<ToPipewireMessage> {
         let mut messages = Vec::new();
@@ -680,9 +676,7 @@ impl SonusmixState {
             // If the link has pending changes, simply check if the states match, and if so, remove
             // the pending marker
             if link.pending {
-                if are_endpoints_connected(graph, source, sink, &node_links)
-                    == link.state.is_connected()
-                {
+                if are_endpoints_connected(source, sink, &node_links) == link.state.is_connected() {
                     link.pending = false;
                 }
                 continue;
@@ -693,7 +687,7 @@ impl SonusmixState {
             match link.state {
                 LinkState::PartiallyConnected => {
                     // Check if link should actually now be disconnected or fully connected
-                    match are_endpoints_connected(graph, source, sink, &node_links) {
+                    match are_endpoints_connected(source, sink, &node_links) {
                         Some(true) => link.state = LinkState::ConnectedUnlocked,
                         Some(false) => to_remove_indices.push(i),
                         None => {}
@@ -702,7 +696,7 @@ impl SonusmixState {
                 LinkState::ConnectedUnlocked => {
                     // Check if all necessary links are still there, if not, change to partially
                     // connected or disconnected
-                    match are_endpoints_connected(graph, source, sink, &node_links) {
+                    match are_endpoints_connected(source, sink, &node_links) {
                         Some(true) => {}
                         Some(false) => to_remove_indices.push(i),
                         None => link.state = LinkState::PartiallyConnected,
@@ -715,7 +709,7 @@ impl SonusmixState {
                             .iter()
                             .cartesian_product(sink.iter())
                             .filter(|(source, sink)| {
-                                are_nodes_connected(graph, source, sink, &node_links) != Some(true)
+                                are_nodes_connected(source, sink, &node_links) != Some(true)
                             })
                             .map(|(source, sink)| {
                                 // TODO: Maybe handle figuring out which exact ports to connect
@@ -735,7 +729,7 @@ impl SonusmixState {
                             .iter()
                             .cartesian_product(sink.iter())
                             .filter(|(source, sink)| {
-                                are_nodes_connected(graph, source, sink, &node_links) != Some(false)
+                                are_nodes_connected(source, sink, &node_links) != Some(false)
                             })
                             .map(|(source, sink)| {
                                 // TODO: Maybe handle figuring out which exact ports to disconnect
@@ -770,7 +764,7 @@ impl SonusmixState {
             ) else {
                 continue;
             };
-            match are_endpoints_connected(graph, source, sink, &node_links) {
+            match are_endpoints_connected(source, sink, &node_links) {
                 Some(true) => self.links.push(Link {
                     start: source_desc,
                     end: sink_desc,
@@ -808,7 +802,7 @@ impl SonusmixState {
                     .filter(|node| node.has_port_kind(kind))
                     .map(|node| vec![node])
             }
-            EndpointDescriptor::PersistentNode(id, kind) => {
+            EndpointDescriptor::PersistentNode(_id, _kind) => {
                 // let (identifier, _) = self.persistent_nodes.get(&id)?;
                 // let nodes: Vec<&PwNode> = graph
                 //     .nodes
@@ -827,7 +821,7 @@ impl SonusmixState {
                 // (!nodes.is_empty()).then_some(nodes)
                 todo!()
             }
-            EndpointDescriptor::GroupNode(id) => todo!(),
+            EndpointDescriptor::GroupNode(_id) => todo!(),
             EndpointDescriptor::Application(id, kind) => {
                 let application = self.applications.get(&id)?;
                 // Resolve all the exceptions. Exceptions should only be an ephemeral or persistent
@@ -856,7 +850,7 @@ impl SonusmixState {
 
                 (!nodes.is_empty()).then_some(nodes)
             }
-            EndpointDescriptor::Device(id, kind) => todo!(),
+            EndpointDescriptor::Device(_id, _kind) => todo!(),
         }
     }
 
@@ -875,7 +869,7 @@ impl SonusmixState {
         for link in graph.links.values() {
             node_links
                 .entry((link.start_node, link.end_node))
-                .or_insert_with(|| Vec::new())
+                .or_insert_with(Vec::new)
                 .push(link);
         }
 
@@ -922,11 +916,13 @@ impl SonusmixState {
                 })
             }
         }
-        return messages;
+
+        messages
     }
 
     /// If a persistent node matching the given Pipewire node already exists, return a descriptor
     /// for it. Otherwise, create one and return a descriptor for it.
+    #[allow(dead_code)] // This will be used when persistent nodes are implemented
     fn get_persistent_node(&mut self, node: &PwNode, kind: PortKind) -> EndpointDescriptor {
         let id = self
             .persistent_nodes
@@ -1016,7 +1012,7 @@ impl Endpoint {
     }
 
     pub fn details_short(&self) -> String {
-        match self.details.get(0) {
+        match self.details.first() {
             Some(details) => details.clone(),
             None => String::new(),
         }
@@ -1028,18 +1024,9 @@ impl Endpoint {
 
     #[cfg(test)]
     pub fn new_test(descriptor: EndpointDescriptor) -> Self {
-        Endpoint {
-            descriptor,
-            is_placeholder: false,
-            display_name: "TESTING ENDPOINT".to_string(),
-            custom_name: None,
-            icon_name: "applications-development".to_string(),
-            details: None,
-            volume: 0.0,
-            volume_mixed: false,
-            volume_locked_muted: VolumeLockMuteState::UnmutedUnlocked,
-            volume_pending: false,
-        }
+        Self::new(descriptor)
+            .with_display_name("TESTING_ENDPOINT".to_owned())
+            .with_icon_name("applications-development".to_owned())
     }
 }
 
@@ -1049,18 +1036,6 @@ pub struct Link {
     pub end: EndpointDescriptor,
     pub state: LinkState,
     pending: bool,
-}
-
-impl Link {
-    #[cfg(test)]
-    pub fn new_test(start: EndpointDescriptor, end: EndpointDescriptor, state: LinkState) -> Link {
-        Link {
-            start,
-            end,
-            state,
-            pending: false,
-        }
-    }
 }
 
 /// Describes the state of the links between two endpoints. There is no "DisconnectedUnlocked"
@@ -1083,10 +1058,7 @@ pub enum LinkState {
 
 impl LinkState {
     pub fn is_locked(self) -> bool {
-        match self {
-            Self::ConnectedLocked | Self::DisconnectedLocked => true,
-            _ => false,
-        }
+        matches!(self, Self::ConnectedLocked | Self::DisconnectedLocked)
     }
 
     pub fn is_connected(self) -> Option<bool> {
@@ -1120,10 +1092,7 @@ pub enum VolumeLockMuteState {
 
 impl VolumeLockMuteState {
     pub fn is_locked(self) -> bool {
-        match self {
-            Self::MutedLocked | Self::UnmutedLocked => true,
-            _ => false,
-        }
+        matches!(self, Self::MutedLocked | Self::UnmutedLocked)
     }
 
     pub fn is_muted(self) -> Option<bool> {
@@ -1174,6 +1143,12 @@ impl VolumeLockMuteState {
     }
 }
 
+impl Default for VolumeLockMuteState {
+    fn default() -> Self {
+        Self::UnmutedUnlocked
+    }
+}
+
 /// Represents anything that can have audio routed to or from it in Sonusmix. This might be a
 /// single node, a group, or all sources or sinks belonging to an application or device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1220,8 +1195,9 @@ impl EndpointDescriptor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct PersistentNodeId(Ulid);
+pub struct PersistentNodeId(Ulid);
 
+#[allow(dead_code)] // This will be used when persistent nodes are implemented
 impl PersistentNodeId {
     fn new() -> Self {
         Self(Ulid::new())
@@ -1229,7 +1205,7 @@ impl PersistentNodeId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct GroupNodeId(Ulid);
+pub struct GroupNodeId(Ulid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ApplicationId(Ulid);
@@ -1282,10 +1258,10 @@ impl Application {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct DeviceId(Ulid);
+pub struct DeviceId(Ulid);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Device;
+pub struct Device;
 
 fn average_volumes<'a>(volumes: impl IntoIterator<Item = &'a f32>) -> f32 {
     let mut count: usize = 0;
@@ -1303,20 +1279,14 @@ fn volumes_mixed<'a>(volumes: impl IntoIterator<Item = &'a f32>) -> bool {
         Some(first) => first,
         _ => return false,
     };
-    if iterator.all(|x| x == first) {
-        false
-    } else {
-        true
-    }
+    iterator.all(|x| x == first)
 }
 
 /// Aggregate an iterator of booleans into an `Option<bool>`. Some if all booleans are the same,
 /// None if any are different from each other.
 fn aggregate_bools<'a>(bools: impl IntoIterator<Item = &'a bool>) -> Option<bool> {
     let mut iter = bools.into_iter();
-    let Some(first) = iter.next() else {
-        return None;
-    };
+    let first = iter.next()?;
     iter.all(|b| b == first).then_some(*first)
 }
 
@@ -1326,7 +1296,6 @@ fn aggregate_bools<'a>(bools: impl IntoIterator<Item = &'a bool>) -> Option<bool
 /// connected to a port on the other. "not connected" means there are no links from any port on one
 /// node to any port on the other. "partially connected" is any other state.
 fn are_nodes_connected(
-    graph: &Graph,
     source: &PwNode,
     sink: &PwNode,
     node_links: &HashMap<(u32, u32), Vec<&PwLink>>,
@@ -1369,7 +1338,6 @@ fn are_nodes_connected(
 // endpoint is completely connected to every node in the sink (see [`are_nodes_connected`]).
 // Partially connected (`None`) is any other state.
 fn are_endpoints_connected(
-    graph: &Graph,
     source: &[&PwNode],
     sink: &[&PwNode],
     node_links: &HashMap<(u32, u32), Vec<&PwLink>>,
@@ -1377,9 +1345,7 @@ fn are_endpoints_connected(
     let mut iter = source
         .iter()
         .cartesian_product(sink.iter())
-        .map(|(source_node, sink_node)| {
-            are_nodes_connected(graph, source_node, sink_node, node_links)
-        });
+        .map(|(source_node, sink_node)| are_nodes_connected(source_node, sink_node, node_links));
     let first = iter.next()??;
     iter.all(|x| x == Some(first)).then_some(first)
 }
@@ -1415,8 +1381,9 @@ mod tests {
             active_sources: Vec::from([sonusmix_node]),
             active_sinks: Vec::new(),
             endpoints: HashMap::from([(sonusmix_node, sonusmix_node_endpoint); 1]),
-            candidates: HashMap::new(),
+            candidates: Vec::new(),
             links: Vec::new(),
+            persistent_nodes: HashMap::new(),
             applications: HashMap::new(),
             devices: HashMap::new(),
         };
@@ -1484,29 +1451,29 @@ mod tests {
             let sink_node = EndpointDescriptor::EphemeralNode(2, PortKind::Sink);
             let sink_endpoint = Endpoint::new_test(sink_node);
 
-            let link = super::Link::new_test(source_node, sink_node, LinkState::ConnectedUnlocked);
+            let link = super::Link {
+                start: source_node,
+                end: sink_node,
+                state: LinkState::ConnectedUnlocked,
+                pending: false,
+            };
 
-            let mut active_sources = Vec::new();
-            active_sources.push(source_node);
+            let active_sources = vec![source_node];
 
-            let mut active_sinks = Vec::new();
-            active_sinks.push(sink_node);
+            let active_sinks = vec![sink_node];
 
             let mut endpoints = HashMap::new();
             endpoints.insert(source_node, source_endpoint);
             endpoints.insert(sink_node, sink_endpoint);
 
-            let mut links = Vec::new();
-            links.push(link);
+            let links = vec![link];
 
             SonusmixState {
                 active_sources,
                 active_sinks,
                 endpoints,
-                candidates: HashMap::new(),
                 links,
-                applications: HashMap::new(),
-                devices: HashMap::new(),
+                ..Default::default()
             }
         };
 
@@ -1575,7 +1542,7 @@ mod tests {
             .endpoints
             .get(&sonusmix_node)
             .expect("Endpoint was removed from state");
-        assert_eq!(endpoint.is_placeholder, false);
+        assert!(!endpoint.is_placeholder);
     }
 
     #[test]
@@ -1600,7 +1567,7 @@ mod tests {
             .endpoints
             .get(&sonusmix_node)
             .expect("Endpoint was removed from state");
-        assert_eq!(endpoint.is_placeholder, true);
+        assert!(endpoint.is_placeholder);
     }
 
     /// Scenario: The user changes the volume of a node in the UI, which
@@ -1644,7 +1611,7 @@ mod tests {
         assert!(endpoint_nodes.get(&sonusmix_node).is_some());
 
         // Compare properties.
-        let pipewire_messages = sonusmix_state.diff_properties(&pipewire_state, &endpoint_nodes);
+        let pipewire_messages = sonusmix_state.diff_properties(&endpoint_nodes);
 
         assert!(pipewire_messages.is_empty());
     }
@@ -1687,7 +1654,7 @@ mod tests {
         assert!(endpoint_nodes.get(&sonusmix_node).is_some());
 
         // Compare properties.
-        let pipewire_messages = sonusmix_state.diff_properties(&pipewire_state, &endpoint_nodes);
+        let pipewire_messages = sonusmix_state.diff_properties(&endpoint_nodes);
 
         // message should be empty and sonusmix state should be updated
         assert!(pipewire_messages.is_empty());
@@ -1740,7 +1707,7 @@ mod tests {
         assert!(endpoint_nodes.get(&sonusmix_node).is_some());
 
         // Compare properties.
-        let pipewire_messages = sonusmix_state.diff_properties(&pipewire_state, &endpoint_nodes);
+        let pipewire_messages = sonusmix_state.diff_properties(&endpoint_nodes);
 
         let endpoint = sonusmix_state
             .endpoints
@@ -1770,9 +1737,9 @@ mod tests {
 
     #[test]
     fn volume_mixed() {
-        assert_eq!(volumes_mixed(&[0.1, 0.12, 0.18]), true);
-        assert_eq!(volumes_mixed(&[0.1, 0.1, 0.1]), false);
-        assert_eq!(volumes_mixed(&[]), false);
+        assert!(volumes_mixed(&[0.1, 0.12, 0.18]));
+        assert!(!volumes_mixed(&[0.1, 0.1, 0.1]));
+        assert!(!volumes_mixed(&[]));
     }
 
     #[test]
@@ -1827,7 +1794,7 @@ mod tests {
         assert!(messages.is_empty());
 
         // (there is only a single link at this point)
-        assert_eq!(sonusmix_state.links[0].pending, false);
+        assert!(!sonusmix_state.links[0].pending);
     }
 
     #[test]
@@ -1858,13 +1825,13 @@ mod tests {
 
         let source = sonusmix_state.active_sources[0];
         let sink = sonusmix_state.active_sinks[0];
-        let link = sonusmix_state.links[0];
+        let _link = sonusmix_state.links[0];
 
         {
             // disconnect locked
             let messages = sonusmix_state.update(
                 &pipewire_state,
-                SonusmixMsg::SetLinkLocked(source, sink, Some(false)),
+                SonusmixMsg::SetLinkLocked(source, sink, false),
             );
             let expected_message = ToPipewireMessage::RemoveNodeLinks {
                 start_id: 1,
@@ -1905,13 +1872,13 @@ mod tests {
 
         let source = sonusmix_state.active_sources[0];
         let sink = sonusmix_state.active_sinks[0];
-        let link = sonusmix_state.links[0];
+        let _link = sonusmix_state.links[0];
 
         {
             // disconnect locked
             let messages = sonusmix_state.update(
                 &pipewire_state,
-                SonusmixMsg::SetLinkLocked(source, sink, Some(true)),
+                SonusmixMsg::SetLinkLocked(source, sink, true),
             );
             assert!(messages.is_empty());
         }

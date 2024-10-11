@@ -1,28 +1,12 @@
-use std::{
-    cell::{RefCell, RefMut},
-    ops::Deref,
-    rc::Rc,
-    sync::{mpsc, Arc},
-    thread::JoinHandle,
-};
+use std::{cell::RefCell, rc::Rc, sync::mpsc, thread::JoinHandle};
 
 use anyhow::{anyhow, Context, Result};
 
 use log::{debug, error};
 use pipewire::{
-    context::Context as PwContext,
-    core::Core,
-    keys::*,
-    link::Link,
-    main_loop::MainLoop,
-    properties::properties,
-    registry::Registry,
-    spa::{param::ParamType, pod::deserialize::PodDeserializer},
-    types::ObjectType,
+    context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop,
+    properties::properties, registry::Registry, spa::param::ParamType, types::ObjectType,
 };
-use relm4::gtk::glib::property::PropertyGet;
-
-use crate::pipewire_api::object::Node;
 
 use super::{object::Port, store::Store, FromPipewireMessage, Graph, PortKind, ToPipewireMessage};
 
@@ -58,13 +42,13 @@ impl Master {
     fn init_core_listeners(&mut self) -> pipewire::core::Listener {
         self.pw_core
             .add_listener_local()
-            .info({
-                let store = self.store.clone();
-                let sender = self.sender.clone();
-                move |info| {
-                    // debug!("info event: {info:?}");
-                }
-            })
+            // .info({
+            //     let store = self.store.clone();
+            //     let sender = self.sender.clone();
+            //     move |info| {
+            //         debug!("info event: {info:?}");
+            //     }
+            // })
             .done(|id, seq| {
                 debug!("Pipewire done event: {id}, {seq:?}");
             })
@@ -87,7 +71,7 @@ impl Master {
                     let result = { store.borrow_mut().add_object(&registry, global) };
                     match result {
                         Ok(_) => {
-                            sender.send(ToPipewireMessage::Update);
+                            let _ = sender.send(ToPipewireMessage::Update);
 
                             // Add param listeners for objects
                             match global.type_ {
@@ -95,7 +79,7 @@ impl Master {
                                     init_node_listeners(store.clone(), sender.clone(), global.id);
                                 }
                                 ObjectType::Device => {
-                                    init_device_listeners(store.clone(), sender.clone(), global.id);
+                                    init_device_listeners(store.clone(), global.id);
                                 }
                                 _ => {}
                             }
@@ -119,7 +103,7 @@ impl Master {
                     println!("Global removed: {:?}", global);
                     let mut store_borrow = store.borrow_mut();
                     store_borrow.remove_object(global);
-                    sender.send(ToPipewireMessage::Update);
+                    let _ = sender.send(ToPipewireMessage::Update);
                 }
             })
             .register()
@@ -185,7 +169,7 @@ impl Master {
             .ports
             .iter()
             .filter(|(_, kind)| *kind == PortKind::Sink)
-            .filter_map(|(port_id, _)| store.ports.get(&port_id))
+            .filter_map(|(port_id, _)| store.ports.get(port_id))
             .collect();
         let port_pairs: Vec<(&Port, &Port)> = start_node
             .ports
@@ -242,14 +226,14 @@ pub fn init_node_listeners(
                     let sender = sender.clone();
                     move |info| {
                         store.borrow_mut().update_node_info(info);
-                        sender.send(ToPipewireMessage::Update);
+                        let _ = sender.send(ToPipewireMessage::Update);
                     }
                 })
                 .param({
                     move |_, type_, _, _, pod| {
                         let mut store_borrow = store.borrow_mut();
                         store_borrow.update_node_param(type_, id, pod);
-                        sender.send(ToPipewireMessage::Update);
+                        let _ = sender.send(ToPipewireMessage::Update);
                     }
                 })
                 .register(),
@@ -260,11 +244,7 @@ pub fn init_node_listeners(
     }
 }
 
-pub fn init_device_listeners(
-    store: Rc<RefCell<Store>>,
-    sender: pipewire::channel::Sender<ToPipewireMessage>,
-    id: u32,
-) {
+pub fn init_device_listeners(store: Rc<RefCell<Store>>, id: u32) {
     if let Some(device) = store.clone().borrow_mut().devices.get_mut(&id) {
         device.listener = Some(
             device
@@ -300,7 +280,7 @@ pub(super) fn init_mainloop(
 
     let to_pw_tx_clone = to_pw_tx.clone();
     let handle = std::thread::spawn(move || {
-        let sender = from_pw_tx;
+        let _sender = from_pw_tx;
         let receiver = to_pw_rx;
         let store = Rc::new(RefCell::new(Store::new()));
 
@@ -320,13 +300,17 @@ pub(super) fn init_mainloop(
             Ok((mainloop, context, pw_core, registry))
         })();
         // If there was an error, report it and exit
-        let (mainloop, context, pw_core, registry) = match init_result {
+        let (mainloop, _context, pw_core, registry) = match init_result {
             Ok(result) => {
-                init_status_tx.send(Ok(()));
+                init_status_tx.send(Ok(())).expect(
+                    "If the init_status receiver has been dropped something has gone very wrong",
+                );
                 result
             }
             Err(err) => {
-                init_status_tx.send(Err(err));
+                init_status_tx.send(Err(err)).expect(
+                    "If the init_status receiver has been dropped something has gone very wrong",
+                );
                 return;
             }
         };

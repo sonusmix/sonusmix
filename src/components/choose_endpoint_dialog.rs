@@ -1,12 +1,11 @@
 use std::convert::Infallible;
+use std::i64;
 use std::sync::Arc;
-use std::{collections::BTreeMap, i64};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use gtk::glib::Propagation;
 use itertools::Itertools;
-use log::debug;
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::prelude::*;
@@ -293,7 +292,7 @@ impl ChooseEndpointDialog {
             .iter()
             .filter(|(_, kind, _)| *kind == self.list)
             .collect();
-        nodes.sort_by(|a, b| a.2.human_name().cmp(&b.2.human_name()));
+        nodes.sort_by(|a, b| a.2.human_name().cmp(b.2.human_name()));
 
         // Get candidate applications
         let mut application_factory = self.applications.guard();

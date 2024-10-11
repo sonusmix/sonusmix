@@ -12,13 +12,12 @@ use std::{collections::HashMap, sync::mpsc, thread};
 use anyhow::{Context, Result};
 use log::error;
 use mainloop::init_mainloop;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub use object::PortKind;
 pub use identifier::NodeIdentifier;
+pub use object::PortKind;
 
-const SONUSMIX_APP_NAME: &'static str = "sonusmix";
+const SONUSMIX_APP_NAME: &str = "sonusmix";
 
 pub struct PipewireHandle {
     pipewire_thread_handle: Option<thread::JoinHandle<()>>,
@@ -28,12 +27,15 @@ pub struct PipewireHandle {
 
 impl PipewireHandle {
     pub fn init(
-        to_pw_channel: (mpsc::Sender<ToPipewireMessage>, mpsc::Receiver<ToPipewireMessage>),
+        to_pw_channel: (
+            mpsc::Sender<ToPipewireMessage>,
+            mpsc::Receiver<ToPipewireMessage>,
+        ),
         update_fn: impl Fn(Graph) + Send + 'static,
     ) -> Result<Self> {
         // TODO: Decide if we actually need a dedicated channel and message type to communicate
         // from Pipewire to the main thread, or if the graph updates are enough
-        let (pipewire_thread_handle, pw_sender, from_pw_receiver) =
+        let (pipewire_thread_handle, pw_sender, _from_pw_receiver) =
             init_mainloop(update_fn).context("Error initializing the Pipewire thread")?;
         let adapter_thread_handle = init_adapter(to_pw_channel.1, pw_sender);
         Ok(Self {
@@ -42,15 +44,11 @@ impl PipewireHandle {
             pipewire_sender: to_pw_channel.0,
         })
     }
-
-    pub fn sender(&self) -> mpsc::Sender<ToPipewireMessage> {
-        self.pipewire_sender.clone()
-    }
 }
 
 impl Drop for PipewireHandle {
     fn drop(&mut self) {
-        self.pipewire_sender.send(ToPipewireMessage::Exit);
+        let _ = self.pipewire_sender.send(ToPipewireMessage::Exit);
         if let Some(adapter_thread_handle) = self.adapter_thread_handle.take() {
             if let Err(err) = adapter_thread_handle.join() {
                 error!("Adapter thread panicked: {err:?}");
@@ -85,25 +83,15 @@ pub enum ToPipewireMessage {
     NodeVolume(u32, Vec<f32>),
     NodeMute(u32, bool),
     #[rustfmt::skip]
-    CreatePortLink {
-        start_id: u32,
-        end_id: u32,
-    },
+    #[allow(dead_code)] // This will be used for individual port mapping
+    CreatePortLink { start_id: u32, end_id: u32 },
     #[rustfmt::skip]
-    CreateNodeLinks {
-        start_id: u32,
-        end_id: u32,
-    },
+    CreateNodeLinks { start_id: u32, end_id: u32 },
     #[rustfmt::skip]
-    RemovePortLink {
-        start_id: u32,
-        end_id: u32,
-    },
+    #[allow(dead_code)] // This will be used for individual port mapping
+    RemovePortLink { start_id: u32, end_id: u32 },
     #[rustfmt::skip]
-    RemoveNodeLinks {
-        start_id: u32,
-        end_id: u32,
-    },
+    RemoveNodeLinks { start_id: u32, end_id: u32 },
     Exit,
 }
 
@@ -122,7 +110,7 @@ fn init_adapter(
     receiver: mpsc::Receiver<ToPipewireMessage>,
     pw_sender: pipewire::channel::Sender<ToPipewireMessage>,
 ) -> thread::JoinHandle<Result<(), PipewireChannelError>> {
-    let handle = thread::spawn(move || loop {
+    thread::spawn(move || loop {
         match receiver.recv().unwrap_or(ToPipewireMessage::Exit) {
             ToPipewireMessage::Exit => {
                 break pw_sender
@@ -131,6 +119,5 @@ fn init_adapter(
             }
             message => pw_sender.send(message).map_err(PipewireChannelError)?,
         }
-    });
-    handle
+    })
 }

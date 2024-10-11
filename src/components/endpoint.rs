@@ -1,7 +1,6 @@
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 
 use gtk::glib::Propagation;
-use log::debug;
 use relm4::actions::RelmAction;
 use relm4::factory::FactoryView;
 use relm4::prelude::*;
@@ -155,13 +154,17 @@ impl FactoryComponent for Endpoint {
                     set_css_classes: &["caption", "dim-label"],
 
                     #[watch]
-                    set_label: if self.endpoint.is_placeholder
-                        { "Inactive" } else
-                        { &self.details_short },
+                    set_label: if self.endpoint.is_placeholder {
+                        "Inactive"
+                    } else {
+                        &self.details_short
+                    },
                     #[watch]
-                    set_tooltip: if self.endpoint.is_placeholder
-                        { "This endpoint is not active. You may reconnect or recreate this endpoint." } else
-                        { &self.details_long }
+                    set_tooltip: if self.endpoint.is_placeholder {
+                        "This endpoint is not active. You may reconnect or recreate this endpoint."
+                    } else {
+                        &self.details_long
+                    }
                 },
                 gtk::Scale {
                     set_range: (0.0, 100.0),
@@ -375,5 +378,5 @@ fn volume_to_slider(volume: f32) -> f64 {
 }
 
 fn slider_to_volume(volume: f64) -> f32 {
-    (volume as f32 / 100.0).powf(3.0) as f32
+    (volume as f32 / 100.0).powf(3.0)
 }

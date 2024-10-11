@@ -1,16 +1,14 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 
-use log::{debug, error};
+use log::error;
 use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
 use relm4::{prelude::*, Sender};
 use tempfile::TempPath;
 
-use crate::pipewire_api::{Graph, PortKind, ToPipewireMessage};
-use crate::state::{EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState};
+use crate::pipewire_api::PortKind;
+use crate::state::{SonusmixMsg, SonusmixReducer, SonusmixState};
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
@@ -27,7 +25,6 @@ pub struct App {
 
 #[derive(Debug)]
 pub enum Msg {
-    Ignore,
     UpdateState(Arc<SonusmixState>, Option<SonusmixMsg>),
     OpenAbout,
     OpenThirdPartyLicenses,
@@ -234,7 +231,6 @@ impl Component for App {
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            Msg::Ignore => {}
             Msg::UpdateState(state, msg) => {
                 self.sonusmix_state = state;
                 // Update the choose endpoint dialog if it's open

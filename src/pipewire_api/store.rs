@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use log::{debug, error};
+use log::error;
 use std::{collections::HashMap, fmt::Debug};
 
 use pipewire::{
@@ -14,12 +14,8 @@ use pipewire::{
 };
 
 use super::{
-    object::{
-        Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind,
-    },
-    pod::{
-        build_node_mute_pod, build_node_volume_pod, DeviceActiveRoute, NodeProps,
-    },
+    object::{Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind},
+    pod::{build_node_mute_pod, build_node_volume_pod, DeviceActiveRoute, NodeProps},
     Graph,
 };
 

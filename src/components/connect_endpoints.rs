@@ -1,4 +1,3 @@
-use log::debug;
 use relm4::prelude::*;
 use relm4::{factory::FactoryVecDeque, gtk::prelude::*};
 
@@ -101,7 +100,11 @@ impl SimpleComponent for ConnectEndpoints {
                             SonusmixMsg::RemoveLink(self.base_endpoint.descriptor, endpoint)
                         }
                         ConnectEndpointItemOutput::SetEndpointLocked(endpoint, locked) => {
-                            SonusmixMsg::SetLinkLocked(self.base_endpoint.descriptor, endpoint, locked)
+                            SonusmixMsg::SetLinkLocked(
+                                self.base_endpoint.descriptor,
+                                endpoint,
+                                locked,
+                            )
                         }
                     }
                 } else {
@@ -113,7 +116,11 @@ impl SimpleComponent for ConnectEndpoints {
                             SonusmixMsg::RemoveLink(endpoint, self.base_endpoint.descriptor)
                         }
                         ConnectEndpointItemOutput::SetEndpointLocked(endpoint, locked) => {
-                            SonusmixMsg::SetLinkLocked(endpoint, self.base_endpoint.descriptor, locked)
+                            SonusmixMsg::SetLinkLocked(
+                                endpoint,
+                                self.base_endpoint.descriptor,
+                                locked,
+                            )
                         }
                     }
                 };
@@ -148,13 +155,12 @@ impl ConnectEndpoints {
 }
 
 struct ConnectEndpointItem {
-    base_endpoint: EndpointDescriptor,
     candidate_endpoint: Endpoint,
     link_state: Option<LinkState>,
 }
 
 #[derive(Debug)]
-enum ConnectEndpointItemOutput {
+pub enum ConnectEndpointItemOutput {
     ConnectEndpoint(EndpointDescriptor),
     DisconnectEndpoint(EndpointDescriptor),
     SetEndpointLocked(EndpointDescriptor, bool),
@@ -191,21 +197,21 @@ impl FactoryComponent for ConnectEndpointItem {
                 },
 
                 connect_clicked[sender, descriptor = self.candidate_endpoint.descriptor] => move |button| {
-                    sender.output(ConnectEndpointItemOutput::SetEndpointLocked(descriptor, button.is_active()));
+                    let _ = sender.output(ConnectEndpointItemOutput::SetEndpointLocked(descriptor, button.is_active()));
                 },
             },
 
 
             gtk::CheckButton {
-                set_label: Some(&self.candidate_endpoint.custom_or_display_name()),
+                set_label: Some(self.candidate_endpoint.custom_or_display_name()),
                 set_active: self.link_state.and_then(|link| link.is_connected()).unwrap_or(false),
                 set_inconsistent: self.link_state.map(|link| link.is_connected().is_none()).unwrap_or(false),
 
                 connect_toggled[sender, descriptor = self.candidate_endpoint.descriptor] => move |check| {
                     if check.is_active() {
-                        sender.output(ConnectEndpointItemOutput::ConnectEndpoint(descriptor));
+                        let _ = sender.output(ConnectEndpointItemOutput::ConnectEndpoint(descriptor));
                     } else {
-                        sender.output(ConnectEndpointItemOutput::DisconnectEndpoint(descriptor));
+                        let _ = sender.output(ConnectEndpointItemOutput::DisconnectEndpoint(descriptor));
                     }
                 } @endpoint_toggled_handler
             }
@@ -235,7 +241,6 @@ impl FactoryComponent for ConnectEndpointItem {
             .map(|link| link.state);
 
         Self {
-            base_endpoint,
             candidate_endpoint,
             link_state,
         }

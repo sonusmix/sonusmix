@@ -2,16 +2,13 @@ mod components;
 mod pipewire_api;
 mod state;
 
-use std::collections::HashMap;
-
 use components::app::App;
 use log::debug;
 use pipewire_api::PipewireHandle;
 use relm4::RelmApp;
-use state::SonusmixReducer;
 
-const APP_IDENTIFIER: &'static str = "org.sonusmix.Sonusmix";
-const APP_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const APP_IDENTIFIER: &str = "org.sonusmix.Sonusmix";
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     // Setting env vars will be marked as unsafe in the 2024 edition, because it may race with
@@ -23,9 +20,7 @@ fn main() {
         .filter_level(log::LevelFilter::Debug)
         .init();
 
-
     debug!("Hello, world!");
-
 
     let (tx, rx) = std::sync::mpsc::channel();
     let update_fn = state::SonusmixReducer::init(tx.clone());

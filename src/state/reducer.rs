@@ -4,10 +4,9 @@ use std::{
         mpsc, Arc,
     },
     thread::JoinHandle,
-    time::Instant,
 };
 
-use log::{debug, error};
+use log::error;
 use relm4::SharedState;
 
 use crate::{
@@ -29,7 +28,7 @@ enum ReducerMsg {
 pub struct SonusmixReducer {
     pw_sender: mpsc::Sender<ToPipewireMessage>,
     reducer_sender: mpsc::Sender<ReducerMsg>,
-    thread_handle: JoinHandle<()>,
+    _thread_handle: JoinHandle<()>,
     state: SharedState<(Arc<SonusmixState>, Option<SonusmixMsg>)>,
 }
 
@@ -63,7 +62,10 @@ impl SonusmixReducer {
                             let mut messages = state.update(&graph, msg.clone());
                             messages.extend(state.diff(&graph));
                             for message in messages {
-                                reducer.pw_sender.send(message);
+                                reducer
+                                    .pw_sender
+                                    .send(message)
+                                    .expect("Failed to send message to Pipewire thread");
                             }
                             let state = (Arc::new(state), Some(msg));
                             {
@@ -74,11 +76,12 @@ impl SonusmixReducer {
                         ReducerMsg::GraphUpdate(new_graph) => {
                             graph = new_graph;
                             let mut state = { reducer.state.read().0.as_ref().clone() };
-                            let t0 = Instant::now();
                             let messages = state.diff(&graph);
-                            let t1 = Instant::now();
                             for message in messages {
-                                reducer.pw_sender.send(message);
+                                reducer
+                                    .pw_sender
+                                    .send(message)
+                                    .expect("Failed to send message to Pipewire thread");
                             }
                             let state = (Arc::new(state), None);
                             {
@@ -115,7 +118,7 @@ impl SonusmixReducer {
         let _ = SONUSMIX_REDUCER.set(Self {
             pw_sender,
             reducer_sender: tx,
-            thread_handle: reducer_handle,
+            _thread_handle: reducer_handle,
             // TODO: initialize from disk
             state,
         });
@@ -196,7 +199,7 @@ mod tests {
     #[should_panic]
     fn panics_if_initialized_twice() {
         let (tx, _) = std::sync::mpsc::channel();
-        SonusmixReducer::init(tx.clone());
-        SonusmixReducer::init(tx);
+        let _ = SonusmixReducer::init(tx.clone());
+        let _ = SonusmixReducer::init(tx);
     }
 }

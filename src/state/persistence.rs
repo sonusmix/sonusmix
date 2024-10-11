@@ -1,20 +1,24 @@
-use std::{fs::{create_dir_all, File}, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    fs::{create_dir_all, File},
+    path::PathBuf,
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
+use log::{debug, error};
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
-use log::{debug, error};
 use tokio::time::Instant;
 
 use crate::{APP_IDENTIFIER, APP_VERSION};
 
-use super::{SonusmixMsg, SonusmixReducer, SonusmixState};
+use super::{SonusmixReducer, SonusmixState};
 
 fn data_dir() -> Option<PathBuf> {
     std::env::var("SONUSMIX_DATA_DIR")
-        .map(|s| PathBuf::from(s))
+        .map(PathBuf::from)
         .ok()
-        .or_else(|| dirs::data_local_dir())
+        .or_else(dirs::data_local_dir)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,7 +45,8 @@ impl PersistentState {
             .context("Failed to create Sonusmix data dir")?;
         let state_file = File::create(state_dir.join(APP_IDENTIFIER).join("state.ron"))
             .context("Failed to create state file")?;
-        ron::ser::to_writer_pretty(state_file, self, PrettyConfig::new()).context("Failed to serialize state")
+        ron::ser::to_writer_pretty(state_file, self, PrettyConfig::new())
+            .context("Failed to serialize state")
     }
 
     pub fn load() -> Result<Self> {
