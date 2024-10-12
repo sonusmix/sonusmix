@@ -53,6 +53,10 @@ cargo build --release
 if [ $(patchelf --print-interpreter ./target/release/sonusmix | grep nix) ]; then
     patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 ./target/release/sonusmix
 fi
+# Do the same thing with the rpath
+if [ $(patchelf --print-interpreter ./target/release/sonusmix | grep nix) ]; then
+    patchelf --remove-rpath ./target/release/sonusmix
+fi
 '''
 
 [tasks.run]
@@ -80,7 +84,12 @@ done
 
 
 [tasks.build-flatpak]
-dependencies = ["build-icons"]
+condition = { files_modified = { input = [
+    "./target/release/sonusmix",
+], output = [
+    "./flatpak-repo/**/*",
+] } }
+dependencies = ["build, build-icons"]
 command = "flatpak-builder"
 args = [
     "--user",
@@ -93,6 +102,7 @@ args = [
 
 [tasks.install-flatpak]
 command = "flatpak"
+dependencies = ["build-flatpak"]
 args = [
     "install",
     "--user",
@@ -101,10 +111,14 @@ args = [
     "org.sonusmix.Sonusmix",
 ]
 
+[tasks.appimagekit-path]
+# Add appimagekit dir to PATH
+env = { "PATH" = "${PATH}:${CARGO_MAKE_WORKING_DIRECTORY}/appimagekit-bin" }
 
 [tasks.appimagetool]
 # Download appimagetool and add it to PATH if it's not already available
 condition_script = ['[ ! -x "$(command -v appimagetool)" ]']
+dependencies = ["appimagekit-path"]
 install_script = '''
 if [ ! -f appimagekit-bin/appimagetool ]; then
     echo "downloading appimagetool AppImage"
@@ -113,12 +127,23 @@ if [ ! -f appimagekit-bin/appimagetool ]; then
     wget -O appimagekit-bin/appimagetool \
         "https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage"
     chmod +x appimagekit-bin/appimagetool
-    wget -O appimagekit-bin/AppRun \
-        "https://github.com/AppImage/AppImageKit/releases/download/13/AppRun-x86_64"
-    chmod +x appimagekit-bin/AppRun
 fi
 '''
-env = { "PATH" = "${PATH}:${CARGO_MAKE_WORKING_DIRECTORY}/appimagekit-bin" }
+
+[tasks.appimage-builder]
+# Download appimage-builder and add it to PATH if it's not already available
+condition_script = ['[ ! -x "$(command -v appimage-builder)" ]']
+dependencies = ["appimagekit-path"]
+install_script = '''
+if [ ! -f appimagekit-bin/appimage-builder ]; then
+    echo "downloading appimage-builder AppImage"
+
+    mkdir appimagekit-bin | true
+    wget -O appimagekit-bin/appimage-builder \
+        "https://github.com/AppImageCrafters/appimage-builder/releases/download/v1.1.0/appimage-builder-1.1.0-x86_64.AppImage"
+    chmod +x appimagekit-bin/appimage-builder
+fi
+'''
 
 [tasks.apprun]
 # Download AppRun from AppImageKit if it doesn't already exist
@@ -133,13 +158,24 @@ chmod +x appimagekit-bin/AppRun
 '''
 
 [tasks.build-appimage]
-dependencies = ["build-icons", "appimagetool", "apprun", "build"]
+dependencies = ["build-icons", "apprun", "build"]
 script = '''
 rm -rf AppDir | true
 
 # Copy binary
 mkdir -p ./AppDir/usr/bin
 cp ./target/release/sonusmix ./AppDir/usr/bin/
+
+# Copy ld-linux
+mkdir ./AppDir/lib64
+cp /lib64/ld-linux-x86-64.so.2 ./AppDir/lib64/
+
+# Copy Libraries
+mkdir ./AppDir/usr/lib
+for LIB_DIR in $(pkg-config --libs-only-L gtk4 | sed 's/-L\//\//g'); do
+    cp -r --no-preserve=mode $LIB_DIR/* ./AppDir/usr/lib
+done
+chmod -R 755 ./AppDir/usr/lib/*
 
 # Copy AppRun
 cp ./appimagekit-bin/AppRun ./AppDir/
