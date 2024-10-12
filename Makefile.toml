@@ -50,11 +50,11 @@ script = '''
 cargo build --release
 
 # If Nix inserted a weird interpreter header, set it to the normal linux ld file
-if [ $(patchelf --print-interpreter ./target/release/sonusmix | grep nix) ]; then
+if [ "$(file ./target/release/sonusmix | grep nix)" ]; then
     patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 ./target/release/sonusmix
 fi
 # Do the same thing with the rpath
-if [ $(patchelf --print-interpreter ./target/release/sonusmix | grep nix) ]; then
+if [ "$(ldd ./target/release/sonusmix | grep nix)" ]; then
     patchelf --remove-rpath ./target/release/sonusmix
 fi
 '''
@@ -175,7 +175,10 @@ mkdir ./AppDir/usr/lib
 for LIB_DIR in $(pkg-config --libs-only-L gtk4 | sed 's/-L\//\//g'); do
     cp -r --no-preserve=mode $LIB_DIR/* ./AppDir/usr/lib
 done
+lddtree --copy-to-tree ./AppDir --bindir=/usr/bin --libdir=/usr/lib target/release/sonusmix
 chmod -R 755 ./AppDir/usr/lib/*
+rm ./AppDir/usr/lib/libc.so.6
+rm ./AppDir/usr/lib/libpipewire-0.3.so.0
 
 # Copy AppRun
 cp ./appimagekit-bin/AppRun ./AppDir/

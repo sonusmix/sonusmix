@@ -7,16 +7,19 @@ mkShell {
   nativeBuildInputs = [
     cargo
     pkg-config
-    gtk4
-    clang
-    pipewire
+    rustPlatform.bindgenHook
     cargo-about
     cargo-make
     wget # Used for downloading appimagekit, since the version in nixpkgs is old
     resvg
+    pax-utils
   ];
 
-  LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+  # LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
-  buildInputs = [];
+  buildInputs = [
+  # build deps
+    gtk4
+    pipewire
+  ];
 }
