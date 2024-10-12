@@ -1,0 +1,18 @@
+when:
+    - event: push
+      branch: main
+
+steps:
+    - name: build AppImage
+      image: nixos/nix
+      commands:
+          - nix-channel --update
+          - nix-shell --command "cargo make build-appimage"
+          - mv org.sonusmix.Sonusmix-*.AppImage org.sonusmix.Sonusmix-continuous.AppImage
+    - name: publish
+      image: wooodpeckerci/plugin-release
+      settings:
+          files:
+              - org.sonusmix.Sonusmix-continuous.AppImage
+          title: Continuous Build
+          prerelease: true
