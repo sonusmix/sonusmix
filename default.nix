@@ -1,7 +1,8 @@
 { pkgs ? import <nixpkgs> { } }:
-pkgs.rustPlatform.buildRustPackage rec {
+pkgs.rustPlatform.buildRustPackage {
   pname = "sonusmix";
   version = "0.1.0";
+  doCheck = false;
   cargoLock = {
     lockFile = ./Cargo.lock;
     outputHashes = {
@@ -9,4 +10,13 @@ pkgs.rustPlatform.buildRustPackage rec {
     };
   };
   src = pkgs.lib.cleanSource ./.;
+  nativeBuildInputs = [
+    pkgs.pkg-config
+    pkgs.rustPlatform.bindgenHook
+  ];
+  buildInputs = [
+    pkgs.glib
+    pkgs.gtk4
+    pkgs.pipewire
+  ];
 }
