@@ -158,7 +158,7 @@ chmod +x appimagekit-bin/AppRun
 '''
 
 [tasks.build-appimage]
-dependencies = ["build-icons", "apprun", "build"]
+dependencies = ["build-icons", "appimagetool", "apprun", "build"]
 script = '''
 rm -rf AppDir | true
 
