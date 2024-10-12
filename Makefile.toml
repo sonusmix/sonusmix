@@ -46,18 +46,8 @@ condition = { files_modified = { input = [
 ], output = [
     "./target/release/sonusmix",
 ] } }
-script = '''
-cargo build --release
-
-# If Nix inserted a weird interpreter header, set it to the normal linux ld file
-if [ "$(file ./target/release/sonusmix | grep nix)" ]; then
-    patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 ./target/release/sonusmix
-fi
-# Do the same thing with the rpath
-if [ "$(ldd ./target/release/sonusmix | grep nix)" ]; then
-    patchelf --remove-rpath ./target/release/sonusmix
-fi
-'''
+command = "cargo"
+args = ["build", "--release"]
 
 [tasks.run]
 command = "./target/release/sonusmix"
@@ -145,43 +135,27 @@ if [ ! -f appimagekit-bin/appimage-builder ]; then
 fi
 '''
 
-[tasks.apprun]
-# Download AppRun from AppImageKit if it doesn't already exist
-condition = { files_not_exist = ["./appimagekit-bin/AppRun"] }
-install_script = '''
-echo "downloading AppRun from AppImageKit"
-
-mkdir appimagekit-bin | true
-wget -O appimagekit-bin/AppRun \
-    "https://github.com/AppImage/AppImageKit/releases/download/13/AppRun-x86_64"
-chmod +x appimagekit-bin/AppRun
-'''
-
 [tasks.build-appimage]
-dependencies = ["build-icons", "appimagetool", "apprun", "build"]
+dependencies = ["build-icons", "appimagetool", "build"]
 script = '''
 rm -rf AppDir | true
 
 # Copy binary
 mkdir -p ./AppDir/usr/bin
-cp ./target/release/sonusmix ./AppDir/usr/bin/
-
-# Copy ld-linux
-mkdir ./AppDir/lib64
-cp /lib64/ld-linux-x86-64.so.2 ./AppDir/lib64/
+cp ./target/release/sonusmix ./AppDir/usr/bin/sonusmix
+# cp ./assets/load-and-run-sonusmix.sh ./AppDir/usr/bin/sonusmix
 
 # Copy Libraries
 mkdir ./AppDir/usr/lib
 for LIB_DIR in $(pkg-config --libs-only-L gtk4 | sed 's/-L\//\//g'); do
     cp -r --no-preserve=mode $LIB_DIR/* ./AppDir/usr/lib
 done
-lddtree --copy-to-tree ./AppDir --bindir=/usr/bin --libdir=/usr/lib target/release/sonusmix
+lddtree --copy-to-tree ./AppDir --bindir=/trash --libdir=/usr/lib target/release/sonusmix
 chmod -R 755 ./AppDir/usr/lib/*
-rm ./AppDir/usr/lib/libc.so.6
-rm ./AppDir/usr/lib/libpipewire-0.3.so.0
+rm -rf ./AppDir/trash
 
 # Copy AppRun
-cp ./appimagekit-bin/AppRun ./AppDir/
+cp ./assets/AppRun ./AppDir/
 
 # Copy desktop file
 mkdir -p ./AppDir/usr/share/applications

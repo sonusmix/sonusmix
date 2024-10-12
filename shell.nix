@@ -18,7 +18,7 @@ mkShell {
   # LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
   buildInputs = [
-  # build deps
+    # library deps
     gtk4
     pipewire
   ];
