@@ -1,18 +1,28 @@
 when:
-    - event: push
-      branch: main
+    - event: tag
+      ref: refs/tags/continuous
 
 steps:
-    - name: build AppImage
+    # - name: build AppImage
+    #   image: nixos/nix
+    #   commands:
+    #       - nix-channel --update
+    #       - nix-shell --command "cargo make --disable-check-for-updates build-appimage"
+    #       - mv org.sonusmix.Sonusmix-*.AppImage org.sonusmix.Sonusmix-continuous.AppImage
+    - name: create dummy file
       image: nixos/nix
       commands:
-          - nix-channel --update
-          - nix-shell --command "cargo make --disable-check-for-updates build-appimage"
-          - mv org.sonusmix.Sonusmix-*.AppImage org.sonusmix.Sonusmix-continuous.AppImage
+          - echo "test file" > test_file.txt
     - name: publish
       image: woodpeckerci/plugin-release
       settings:
           files:
-              - org.sonusmix.Sonusmix-continuous.AppImage
-          title: Continuous Build
+              # - org.sonusmix.Sonusmix-continuous.AppImage
+              - test_file.txt
+          title: "Continuous Build"
+          note: "Builds straight from the main branch"
           prerelease: true
+          file-exists: "overwrite"
+          overwrite: true
+          api_key:
+              from_secret: GITEA_SECRET

@@ -4,6 +4,6 @@ when:
 
 steps:
   - name: cargo check
-    image: rust
+    image: nixos/nix
     commands:
-      - cargo check
+      - nix-shell shell-minimal.nix --command "cargo check"
