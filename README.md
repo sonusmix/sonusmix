@@ -1,6 +1,6 @@
 ```mermaid
 graph TD
-    A(["⚠️ Sonusmix is in development. It should be fairly satable by now, but is still missing some crucial features."])
+    A(["⚠️ Sonusmix is in development. It should be fairly stable by now, but it is still missing some crucial features."])
 ```
 
 # Sonusmix
@@ -16,3 +16,17 @@ We are working on shipping prebuilt AppImages, and distributing to flathub. Unti
 - resvg (from your system package manager or `cargo install --locked resvg`)
 - pax-utils (only if building an AppImage)
 - appimagetool (only if building an AppImage, this will be automatically downloaded if needed as long as `wget` is installed)
+
+To build an AppImage after installing the dependencies, run:
+```bash
+git clone https://codeberg.org/sonusmix/sonusmix
+cd sonusmix
+cargo make build-appimage
+```
+
+Or, to build an AppImage using nix (without needing to install any other dependencies), run:
+```bash
+git clone https://codeberg.org/sonusmix/sonusmix
+cd sonusmix
+nix-shell shell.nix --pure --command "cargo make build-appimage"
+```
