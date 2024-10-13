@@ -7,10 +7,10 @@ steps:
       image: nixos/nix
       commands:
           - nix-channel --update
-          - nix-shell --command "cargo make build-appimage"
+          - nix-shell --command "cargo make --disable-check-for-updates build-appimage"
           - mv org.sonusmix.Sonusmix-*.AppImage org.sonusmix.Sonusmix-continuous.AppImage
     - name: publish
-      image: wooodpeckerci/plugin-release
+      image: woodpeckerci/plugin-release
       settings:
           files:
               - org.sonusmix.Sonusmix-continuous.AppImage

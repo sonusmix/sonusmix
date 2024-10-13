@@ -2,6 +2,9 @@ with import <nixpkgs> {};
 
 # shell for dev environment
 
+let
+  appimagetool = import ./assets/appimagetool.nix {};
+in
 mkShell {
   # build deps
   nativeBuildInputs = [
@@ -13,10 +16,9 @@ mkShell {
     wget # Used for downloading appimagekit, since the version in nixpkgs is old
     resvg
     pax-utils
-    appimage-run
+    nix
+    appimagetool
   ];
-
-  # LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
   buildInputs = [
     # library deps

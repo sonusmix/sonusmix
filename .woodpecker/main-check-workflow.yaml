@@ -1,10 +1,9 @@
 when:
-  - event: push
+  - event: [push, pull_request]
     branch: main
 
 steps:
   - name: cargo check
-    image: nixos/nix
+    image: rust
     commands:
-      - nix-channel --update
-      - nix-shell --command "cargo check"
+      - cargo check
