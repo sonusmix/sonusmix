@@ -3,7 +3,10 @@ graph TD
     A(["⚠️ Sonusmix is in development. It should be fairly stable by now, but it is still missing some crucial features."])
 ```
 
-# Sonusmix
+# Sonusmix 
+
+![](https://ci.codeberg.org/api/badges/13704/status.svg)
+
 A tool to easily route devices in Pipewire. It intends to enable the same features and workflows as [Voicemeeter](https://vb-audio.com/Voicemeeter/) or [Pulsemeeter](https://github.com/theRealCarneiro/pulsemeeter), but with a more intuitive interface.
 
 ## Installation
