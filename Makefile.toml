@@ -79,7 +79,8 @@ condition = { files_modified = { input = [
 ], output = [
     "./flatpak-repo/**/*",
 ] } }
-dependencies = ["build, build-icons"]
+# Does not depend on build, the build step is included in the flatpak manifest
+dependencies = ["build-icons"]
 command = "flatpak-builder"
 args = [
     "--user",
