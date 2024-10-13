@@ -172,5 +172,9 @@ ln -s "usr/share/icons/hicolor/scalable/apps/${APP_ID}.svg" ./AppDir/
 unset SOURCE_DATE_EPOCH
 
 # Create AppImage
-appimagetool ./AppDir "${APP_ID}-${CARGO_MAKE_CRATE_VERSION}.AppImage"
+if [ -x "$(command -v appimage-run)" ]; then
+    appimage-run appimagekit-bin/appimagetool ./AppDir "${APP_ID}-${CARGO_MAKE_CRATE_VERSION}.AppImage"
+else
+    appimagetool ./AppDir "${APP_ID}-${CARGO_MAKE_CRATE_VERSION}.AppImage"
+fi
 '''

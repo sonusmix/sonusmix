@@ -13,6 +13,7 @@ mkShell {
     wget # Used for downloading appimagekit, since the version in nixpkgs is old
     resvg
     pax-utils
+    appimage-run
   ];
 
   # LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
