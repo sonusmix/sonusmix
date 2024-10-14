@@ -3,22 +3,17 @@ when:
       ref: refs/tags/continuous
 
 steps:
-    # - name: build AppImage
-    #   image: nixos/nix
-    #   commands:
-    #       - nix-channel --update
-    #       - nix-shell --command "cargo make --disable-check-for-updates build-appimage"
-    #       - mv org.sonusmix.Sonusmix-*.AppImage org.sonusmix.Sonusmix-continuous.AppImage
-    - name: create dummy file
+    - name: build AppImage
       image: nixos/nix
       commands:
-          - echo "test file" > test_file.txt
+          - nix-channel --update
+          - nix-shell --command "cargo make --disable-check-for-updates build-appimage"
+          - mv org.sonusmix.Sonusmix-*.AppImage org.sonusmix.Sonusmix-continuous.AppImage
     - name: publish
       image: woodpeckerci/plugin-release
       settings:
           files:
-              # - org.sonusmix.Sonusmix-continuous.AppImage
-              - test_file.txt
+              - org.sonusmix.Sonusmix-continuous.AppImage
           title: "Continuous Build"
           note: "Builds straight from the main branch"
           prerelease: true
