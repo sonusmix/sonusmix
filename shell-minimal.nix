@@ -7,7 +7,7 @@ mkShell {
     cargo
     pkg-config
     rustPlatform.bindgenHook
-    cargo-about
+    # cargo-about
   ];
 
   # library deps
