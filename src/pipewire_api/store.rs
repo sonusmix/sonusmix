@@ -22,6 +22,10 @@ use super::{
 #[derive(Debug)]
 pub(super) struct Store {
     pub(super) sonusmix_client_id: Option<u32>,
+    /// This map is used to store proxies of group nodes created by Sonusmix. They will be
+    /// duplicated elsewhere in the store, but to avoid overcomplicating that code, we will store
+    /// them here since dropping these copies deletes the object on the server.
+    pub(super) group_nodes: HashMap<String, pipewire::node::Node>,
     pub(super) clients: HashMap<u32, Client>,
     pub(super) devices: HashMap<u32, Device>,
     pub(super) nodes: HashMap<u32, Node>,
@@ -33,6 +37,7 @@ impl Store {
     pub(super) fn new() -> Self {
         Self {
             sonusmix_client_id: None,
+            group_nodes: HashMap::new(),
             clients: HashMap::new(),
             devices: HashMap::new(),
             nodes: HashMap::new(),

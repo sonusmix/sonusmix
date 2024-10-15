@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 
 use log::{debug, error};
 use pipewire::{
-    context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop,
+    context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop, node::Node,
     properties::properties, registry::Registry, spa::param::ParamType, types::ObjectType,
 };
 
@@ -210,6 +210,40 @@ impl Master {
         }
         Ok(())
     }
+
+    fn create_group_node(&self, name: String) -> Result<()> {
+        let mut store = self.store.borrow_mut();
+        let proxy = self
+            .pw_core
+            .create_object::<pipewire::node::Node>(
+                "adapter",
+                &properties! {
+                    *FACTORY_NAME => "support.null-audio-sink",
+                    *NODE_NAME => &*name,
+                    *MEDIA_CLASS => "Audio/Duplex",
+                    // *OBJECT_LINGER => "false",
+                    "audio.position" => "[ FL FR ]",
+                    "monitor.channel-volumes" => "true",
+                    "monitor.passthrough" => "true",
+                },
+            )
+            .with_context(|| format!("Failed to create group node '{name}'"))?;
+        store.group_nodes.insert(name, proxy);
+        Ok(())
+    }
+
+    fn remove_group_node(&self, name: &str) -> Result<()> {
+        let mut store = self.store.borrow_mut();
+        let node = store
+            .group_nodes
+            .remove(name)
+            .with_context(|| format!("Group node '{name}' does not exist"))?;
+
+        // Dropping the proxy deletes the object on the server
+        drop(node);
+
+        Ok(())
+    }
 }
 
 pub fn init_node_listeners(
@@ -359,6 +393,16 @@ pub(super) fn init_mainloop(
                     if let Err(err) = master.remove_node_links(start_id, end_id) {
                         error!("Error removing node links: {err:?}");
                     };
+                }
+                ToPipewireMessage::CreateGroupNode(name) => {
+                    if let Err(err) = master.create_group_node(name) {
+                        error!("Error creating group node: {err:?}");
+                    }
+                }
+                ToPipewireMessage::RemoveGroupNode(name) => {
+                    if let Err(err) = master.remove_group_node(&name) {
+                        error!("Error removing group node: {err:?}");
+                    }
                 }
                 ToPipewireMessage::Exit => mainloop.quit(),
             }

@@ -92,6 +92,8 @@ pub enum ToPipewireMessage {
     RemovePortLink { start_id: u32, end_id: u32 },
     #[rustfmt::skip]
     RemoveNodeLinks { start_id: u32, end_id: u32 },
+    CreateGroupNode(String),
+    RemoveGroupNode(String),
     Exit,
 }
 
