@@ -1,5 +1,14 @@
 #!/bin/sh
+
+# Get root path of AppImage
 BASE_PATH="$(dirname "$0")"
+
+# Get system library path (using a program from a package that needs to be installed to run anyway)
+PIPEWIRE_LIB_PATH="$(/lib64/ld-linux-x86-64.so.2 --list $(command -v pipewire) |\
+    grep libpipewire |\
+    sed 's/.*=> \(.*\)\/libpipewire.*/\1/')"
+
+# Call sonusmix using the packaged ld-linux and the packaged libraries
 "$BASE_PATH/usr/lib/ld-linux-x86-64.so.2"\
-    --library-path "$BASE_PATH/usr/lib"\
+    --library-path "$BASE_PATH/usr/lib:$PIPEWIRE_LIB_PATH"\
     "$BASE_PATH/usr/bin/sonusmix"

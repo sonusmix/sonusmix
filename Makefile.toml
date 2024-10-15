@@ -154,6 +154,9 @@ done
 lddtree --copy-to-tree ./AppDir --bindir=/trash --libdir=/usr/lib target/release/sonusmix
 chmod -R 755 ./AppDir/usr/lib/*
 rm -rf ./AppDir/trash
+# Remove the Pipewire lib as the one from the host should be used instead. The Pipewire dylibs are
+# loaded dynamically and so they don't need to be the exact same version.
+rm ./AppDir/usr/lib/libpipewire-0.3.so.0
 
 # Copy AppRun
 cp ./assets/AppRun ./AppDir/
