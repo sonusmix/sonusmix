@@ -12,14 +12,14 @@ use crate::state::{SonusmixMsg, SonusmixReducer, SonusmixState};
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
-use super::endpoint::Endpoint;
+use super::endpoint_list::EndpointList;
 
 pub struct App {
     sonusmix_state: Arc<SonusmixState>,
     about_component: Option<Controller<AboutComponent>>,
     third_party_licenses_file: Option<TempPath>,
-    sources: FactoryVecDeque<Endpoint>,
-    sinks: FactoryVecDeque<Endpoint>,
+    sources: Controller<EndpointList>,
+    sinks: Controller<EndpointList>,
     choose_endpoint_dialog: Controller<ChooseEndpointDialog>,
 }
 
@@ -28,7 +28,6 @@ pub enum Msg {
     UpdateState(Arc<SonusmixState>, Option<SonusmixMsg>),
     OpenAbout,
     OpenThirdPartyLicenses,
-    ChooseEndpoint(PortKind),
 }
 
 #[derive(Debug)]
@@ -64,97 +63,39 @@ impl Component for App {
                 },
             },
 
-            gtk::Box {
+            gtk::Paned {
                 set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 8,
                 set_margin_all: 8,
+                set_wide_handle: true,
+                set_shrink_start_child: false,
+                set_shrink_end_child: false,
 
-                gtk::Grid {
-                    set_hexpand: true,
-                    set_column_homogeneous: true,
+                #[wrap(Some)]
+                set_start_child = &gtk::Paned {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_wide_handle: true,
+                    set_shrink_start_child: false,
+                    set_shrink_end_child: false,
 
-                    attach[0, 0, 1, 1] = &gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
+                    #[wrap(Some)]
+                    set_start_child = &gtk::Box {
                         set_margin_end: 4,
 
-                        gtk::Label {
-                            set_markup: "<big>Sources</big>",
-                            add_css_class: "heading",
-                        },
-                        gtk::Separator {
-                            set_orientation: gtk::Orientation::Vertical,
-                            set_margin_vertical: 4,
-                        },
-                        if model.sources.is_empty() {
-                            gtk::Label {
-                                set_vexpand: true,
-                                set_valign: gtk::Align::Center,
-                                set_halign: gtk::Align::Center,
-
-                                #[watch]
-                                set_label: "Add some sources below to control them here.",
-                            }
-                        } else {
-                            gtk::ScrolledWindow {
-                                set_vexpand: true,
-                                set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
-
-                                #[local_ref]
-                                sources_list -> gtk::Box {
-                                    set_orientation: gtk::Orientation::Vertical,
-                                    set_margin_vertical: 4,
-                                }
-                            }
-                        },
-                        gtk::Button {
-                            set_icon_name: "list-add-symbolic",
-                            set_label: "Add Source",
-
-                            connect_clicked[sender] => move |_| {
-                                sender.input(Msg::ChooseEndpoint(PortKind::Source));
-                            }
-                        }
+                        append: model.sources.widget(),
                     },
-                    attach[1, 0, 1, 1] = &gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
+                    #[wrap(Some)]
+                    set_end_child = &gtk::Box {
                         set_margin_start: 4,
 
-                        gtk::Label {
-                            set_markup: "<big>Sinks</big>",
-                            add_css_class: "heading",
-                        },
-                        gtk::Separator {
-                            set_orientation: gtk::Orientation::Vertical,
-                            set_margin_vertical: 4,
-                        },
-                        if model.sinks.is_empty() {
-                            gtk::Label {
-                                set_vexpand: true,
-                                set_valign: gtk::Align::Center,
-                                set_halign: gtk::Align::Center,
-
-                                #[watch]
-                                set_label: "Add some sinks below to control them here.",
-                            }
-                        } else {
-                            gtk::ScrolledWindow {
-                                set_vexpand: true,
-                                set_policy: (gtk::PolicyType::Never, gtk::PolicyType::Automatic),
-
-                                #[local_ref]
-                                sinks_list -> gtk::Box {
-                                    set_orientation: gtk::Orientation::Vertical,
-                                    set_margin_vertical: 4,
-                                }
-                            }
-                        },
-                        gtk::Button {
-                            set_icon_name: "list-add-symbolic",
-                            set_label: "Add Sink",
-
-                            connect_clicked => Msg::ChooseEndpoint(PortKind::Sink),
-                        }
+                        append: model.sinks.widget(),
                     },
+                },
+
+                #[wrap(Some)]
+                set_end_child = &gtk::Frame {
+                    gtk::Label {
+                        set_label: "asdf",
+                    }
                 }
             }
         }
@@ -171,28 +112,20 @@ impl Component for App {
         let sonusmix_state =
             SonusmixReducer::subscribe_msg(sender.input_sender(), Msg::UpdateState);
 
-        let mut sources = FactoryVecDeque::builder()
-            .launch(gtk::Box::default())
-            .forward(sender.input_sender(), |output| match output {});
-        {
-            let mut sources = sources.guard();
-            for endpoint in &sonusmix_state.active_sources {
-                sources.push_back(*endpoint);
-            }
-        }
-        let mut sinks = FactoryVecDeque::builder()
-            .launch(gtk::Box::default())
-            .forward(sender.input_sender(), |output| match output {});
-        {
-            let mut sinks = sinks.guard();
-            for endpoint in &sonusmix_state.active_sinks {
-                sinks.push_back(*endpoint);
-            }
-        }
         let choose_endpoint_dialog = ChooseEndpointDialog::builder()
             .transient_for(&root)
             .launch(())
             .detach();
+        let sources = EndpointList::builder()
+            .launch(PortKind::Source)
+            .forward(choose_endpoint_dialog.sender(), |_| {
+                ChooseEndpointDialogMsg::Show(PortKind::Source)
+            });
+        let sinks = EndpointList::builder()
+            .launch(PortKind::Sink)
+            .forward(choose_endpoint_dialog.sender(), |_| {
+                ChooseEndpointDialogMsg::Show(PortKind::Sink)
+            });
 
         let model = App {
             about_component: None,
@@ -203,8 +136,6 @@ impl Component for App {
             choose_endpoint_dialog,
         };
 
-        let sources_list = model.sources.widget();
-        let sinks_list = model.sinks.widget();
         let widgets = view_output!();
 
         // Set up actions
@@ -235,32 +166,17 @@ impl Component for App {
                 self.sonusmix_state = state;
                 // Update the choose endpoint dialog if it's open
                 if let Some(list) = self.choose_endpoint_dialog.model().active_list() {
-                    sender.input(Msg::ChooseEndpoint(list));
+                    let _ = self.choose_endpoint_dialog
+                        .sender()
+                        .send(ChooseEndpointDialogMsg::Show(list));
                 }
 
                 match msg {
-                    Some(SonusmixMsg::AddEndpoint(endpoint)) => {
-                        if endpoint.is_kind(PortKind::Source) {
-                            self.sources.guard().push_back(endpoint);
-                        } else {
-                            self.sinks.guard().push_back(endpoint);
-                        }
+                    Some(SonusmixMsg::AddEndpoint(_endpoint)) => {
                         // TODO: Handle groups
                     }
-                    Some(SonusmixMsg::RemoveEndpoint(endpoint_desc)) => {
-                        let endpoints = if endpoint_desc.is_kind(PortKind::Source) {
-                            &mut self.sources
-                        } else {
-                            &mut self.sinks
-                        };
+                    Some(SonusmixMsg::RemoveEndpoint(_endpoint_desc)) => {
                         // TODO: Handle groups
-
-                        let index = endpoints
-                            .iter()
-                            .position(|endpoint| endpoint.id() == endpoint_desc);
-                        if let Some(index) = index {
-                            endpoints.guard().remove(index);
-                        }
                     }
                     _ => {}
                 }
@@ -273,12 +189,6 @@ impl Component for App {
                 sender.spawn_oneshot_command(move || {
                     CommandMsg::OpenThirdPartyLicenses(open_third_party_licenses(temp_path))
                 });
-            }
-            Msg::ChooseEndpoint(list) => {
-                let _ = self
-                    .choose_endpoint_dialog
-                    .sender()
-                    .send(ChooseEndpointDialogMsg::Show(list));
             }
         };
     }

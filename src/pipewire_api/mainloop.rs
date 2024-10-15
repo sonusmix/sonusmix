@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context, Result};
 
 use log::{debug, error};
 use pipewire::{
-    context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop, node::Node,
+    context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop,
     properties::properties, registry::Registry, spa::param::ParamType, types::ObjectType,
 };
 
