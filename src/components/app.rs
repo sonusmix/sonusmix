@@ -13,6 +13,7 @@ use crate::state::{SonusmixMsg, SonusmixReducer, SonusmixState};
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
 use super::endpoint_list::EndpointList;
+use super::group::Group;
 
 pub struct App {
     sonusmix_state: Arc<SonusmixState>,
@@ -20,6 +21,7 @@ pub struct App {
     third_party_licenses_file: Option<TempPath>,
     sources: Controller<EndpointList>,
     sinks: Controller<EndpointList>,
+    groups: FactoryVecDeque<Group>,
     choose_endpoint_dialog: Controller<ChooseEndpointDialog>,
 }
 
@@ -53,7 +55,7 @@ impl Component for App {
     view! {
         main_window = gtk::ApplicationWindow {
             set_title: Some("Sonusmix"),
-            set_default_size: (1000, 700),
+            set_default_size: (1100, 800),
 
             #[wrap(Some)]
             set_titlebar = &gtk::HeaderBar {
@@ -93,8 +95,48 @@ impl Component for App {
 
                 #[wrap(Some)]
                 set_end_child = &gtk::Frame {
-                    gtk::Label {
-                        set_label: "asdf",
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_hexpand: true,
+
+                        gtk::CenterBox {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_margin_top: 4,
+                            set_margin_start: 4,
+
+                            #[wrap(Some)]
+                            set_start_widget = &gtk::Button {
+                                set_icon_name: "list-add-symbolic",
+                                set_has_frame: true,
+                            },
+                            #[wrap(Some)]
+                            set_center_widget = &gtk::Label {
+                                set_markup: "<big>Groups/Virtual Devices</big>",
+                            },
+                        },
+                        gtk::Separator {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_margin_vertical: 4,
+                        },
+                        if model.groups.is_empty() {
+                            gtk::Label {
+                                set_vexpand: true,
+                                set_valign: gtk::Align::Center,
+                                set_halign: gtk::Align::Center,
+                                set_label: "Add some groups to control them here.",
+                            }
+                        } else {
+                            gtk::ScrolledWindow {
+                                set_hexpand: true,
+                                set_policy: (gtk::PolicyType::Automatic, gtk::PolicyType::Never),
+
+                                #[local_ref]
+                                groups_list -> gtk::Box {
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_margin_all: 4,
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -127,15 +169,27 @@ impl Component for App {
                 ChooseEndpointDialogMsg::Show(PortKind::Sink)
             });
 
+        let mut groups = FactoryVecDeque::builder()
+            .launch(gtk::Box::default())
+            .detach();
+        {
+            let mut groups = groups.guard();
+            groups.push_back(());
+            groups.push_back(());
+            groups.push_back(());
+        }
+
         let model = App {
+            sonusmix_state,
             about_component: None,
             third_party_licenses_file: None,
-            sonusmix_state,
             sources,
             sinks,
+            groups,
             choose_endpoint_dialog,
         };
 
+        let groups_list = model.groups.widget();
         let widgets = view_output!();
 
         // Set up actions

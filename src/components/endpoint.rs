@@ -61,8 +61,7 @@ impl FactoryComponent for Endpoint {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
             set_spacing: 8,
-            set_margin_vertical: 4,
-            set_margin_horizontal: 4,
+            set_margin_all: 4,
 
             gtk::Box {
                 set_hexpand: true,
@@ -201,7 +200,7 @@ impl FactoryComponent for Endpoint {
                 },
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
-                    set_spacing: 5,
+                    set_spacing: 4,
 
                     #[name(mute_button)]
                     gtk::ToggleButton {
