@@ -1,4 +1,3 @@
-use std::convert::Infallible;
 use std::sync::Arc;
 
 use relm4::factory::FactoryVecDeque;
@@ -6,7 +5,7 @@ use relm4::gtk::prelude::*;
 use relm4::prelude::*;
 
 use crate::pipewire_api::PortKind;
-use crate::state::{SonusmixMsg, SonusmixReducer, SonusmixState};
+use crate::state::{SonusmixOutputMsg, SonusmixReducer, SonusmixState};
 
 use super::endpoint::Endpoint;
 
@@ -17,7 +16,7 @@ pub struct EndpointList {
 
 #[derive(Debug)]
 pub enum EndpointListMsg {
-    UpdateState(Arc<SonusmixState>, Option<SonusmixMsg>),
+    UpdateState(Arc<SonusmixState>, Option<SonusmixOutputMsg>),
 }
 
 #[derive(Debug)]
@@ -33,6 +32,7 @@ impl SimpleComponent for EndpointList {
         gtk::Frame {
             gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
+                set_hexpand: true,
 
                 gtk::CenterBox {
                     set_orientation: gtk::Orientation::Horizontal,
@@ -120,17 +120,17 @@ impl SimpleComponent for EndpointList {
     fn update(&mut self, msg: EndpointListMsg, _sender: ComponentSender<Self>) {
         match msg {
             EndpointListMsg::UpdateState(_state, msg) => match msg {
-                Some(SonusmixMsg::AddEndpoint(endpoint_desc)) => {
-                    if endpoint_desc.is_kind(self.list) {
-                        self.endpoints.guard().push_back(endpoint_desc);
-                    }
+                Some(SonusmixOutputMsg::EndpointAdded(descriptor))
+                    if descriptor.is_list(self.list) =>
+                {
+                    self.endpoints.guard().push_back(descriptor);
                 }
-                Some(SonusmixMsg::RemoveEndpoint(endpoint_desc)) => {
-                    if endpoint_desc.is_kind(self.list) {
+                Some(SonusmixOutputMsg::EndpointRemoved(descriptor)) => {
+                    if descriptor.is_list(self.list) {
                         let index = self
                             .endpoints
                             .iter()
-                            .position(|endpoint| endpoint.id() == endpoint_desc);
+                            .position(|endpoint| endpoint.id() == descriptor);
                         if let Some(index) = index {
                             self.endpoints.guard().remove(index);
                         }

@@ -1,9 +1,11 @@
 use anyhow::{anyhow, Result};
 use log::error;
 use std::{collections::HashMap, fmt::Debug};
+use ulid::Ulid;
 
 use pipewire::{
     node::NodeInfoRef,
+    proxy::ProxyT,
     registry::{GlobalObject, Registry},
     spa::{
         param::ParamType,
@@ -25,7 +27,7 @@ pub(super) struct Store {
     /// This map is used to store proxies of group nodes created by Sonusmix. They will be
     /// duplicated elsewhere in the store, but to avoid overcomplicating that code, we will store
     /// them here since dropping these copies deletes the object on the server.
-    pub(super) group_nodes: HashMap<String, pipewire::node::Node>,
+    pub(super) group_nodes: HashMap<Ulid, (pipewire::node::Node, String)>,
     pub(super) clients: HashMap<u32, Client>,
     pub(super) devices: HashMap<u32, Device>,
     pub(super) nodes: HashMap<u32, Node>,
@@ -43,6 +45,18 @@ impl Store {
             nodes: HashMap::new(),
             ports: HashMap::new(),
             links: HashMap::new(),
+        }
+    }
+
+    pub(super) fn set_sonusmix_client_id(&mut self, id: u32) {
+        if let Some(client) = self
+            .sonusmix_client_id
+            .and_then(|last_id| self.clients.get_mut(&last_id))
+        {
+            client.is_sonusmix = false;
+        }
+        if let Some(client) = self.clients.get_mut(&id) {
+            client.is_sonusmix = true;
         }
     }
 
@@ -116,9 +130,9 @@ impl Store {
             .filter_map(|node| (node.endpoint == EndpointId::Client(client.id)).then_some(node.id))
             .collect();
 
-        // Check if the client is Sonusmix. If so, record its id.
-        if client.is_sonusmix {
-            self.sonusmix_client_id = Some(client.id);
+        // Check if the client is Sonusmix. If so, mark it as such.
+        if Some(client.id) == self.sonusmix_client_id {
+            client.is_sonusmix = true;
         }
 
         // Add the client
@@ -378,6 +392,13 @@ impl Store {
     #[rustfmt::skip] // Rustfmt puts each call on its own line which is really hard to read
     pub fn dump_graph(&self) -> Graph {
         Graph {
+            group_nodes: self
+                .group_nodes
+                .iter()
+                .map(|(ulid_id, (group_node, name))| {
+                    (*ulid_id, (group_node.upcast_ref().id(), name.clone()))
+                })
+                .collect(),
             clients: self.clients.iter().map(|(id, client)| (*id, client.without_proxy())).collect(),
             devices: self.devices.iter().map(|(id, device)| (*id, device.without_proxy())).collect(),
             nodes: self.nodes.iter().map(|(id, node)| (*id, node.without_proxy())).collect(),

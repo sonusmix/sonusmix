@@ -10,7 +10,7 @@ use pipewire::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::{identifier::NodeIdentifier, pod::DeviceActiveRoute, SONUSMIX_APP_NAME};
+use super::{identifier::NodeIdentifier, pod::DeviceActiveRoute};
 
 #[derive(Error, Debug)]
 pub enum ObjectConvertError {
@@ -148,7 +148,7 @@ impl Client<pipewire::client::Client> {
         Ok(Self {
             id: object.id,
             name: name.to_owned(),
-            is_sonusmix: name == SONUSMIX_APP_NAME,
+            is_sonusmix: false,
             nodes: Vec::new(),
             _proxy: proxy,
         })

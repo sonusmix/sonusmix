@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::error;
+use log::{debug, error};
 use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
@@ -8,7 +8,10 @@ use relm4::{prelude::*, Sender};
 use tempfile::TempPath;
 
 use crate::pipewire_api::PortKind;
-use crate::state::{SonusmixMsg, SonusmixReducer, SonusmixState};
+use crate::state::{
+    EndpointDescriptor, GroupNodeKind, SonusmixMsg, SonusmixOutputMsg, SonusmixReducer,
+    SonusmixState,
+};
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
@@ -27,7 +30,8 @@ pub struct App {
 
 #[derive(Debug)]
 pub enum Msg {
-    UpdateState(Arc<SonusmixState>, Option<SonusmixMsg>),
+    UpdateState(Arc<SonusmixState>, Option<SonusmixOutputMsg>),
+    AddGroupNode,
     OpenAbout,
     OpenThirdPartyLicenses,
 }
@@ -108,6 +112,8 @@ impl Component for App {
                             set_start_widget = &gtk::Button {
                                 set_icon_name: "list-add-symbolic",
                                 set_has_frame: true,
+
+                                connect_clicked => Msg::AddGroupNode,
                             },
                             #[wrap(Some)]
                             set_center_widget = &gtk::Label {
@@ -174,9 +180,9 @@ impl Component for App {
             .detach();
         {
             let mut groups = groups.guard();
-            groups.push_back(());
-            groups.push_back(());
-            groups.push_back(());
+            for group in sonusmix_state.group_nodes.keys() {
+                groups.push_back(*group);
+            }
         }
 
         let model = App {
@@ -220,19 +226,46 @@ impl Component for App {
                 self.sonusmix_state = state;
                 // Update the choose endpoint dialog if it's open
                 if let Some(list) = self.choose_endpoint_dialog.model().active_list() {
-                    let _ = self.choose_endpoint_dialog
+                    let _ = self
+                        .choose_endpoint_dialog
                         .sender()
                         .send(ChooseEndpointDialogMsg::Show(list));
                 }
 
                 match msg {
-                    Some(SonusmixMsg::AddEndpoint(_endpoint)) => {
-                        // TODO: Handle groups
+                    Some(SonusmixOutputMsg::EndpointAdded(EndpointDescriptor::GroupNode(id))) => {
+                        self.groups.guard().push_back(id);
                     }
-                    Some(SonusmixMsg::RemoveEndpoint(_endpoint_desc)) => {
-                        // TODO: Handle groups
+                    Some(SonusmixOutputMsg::EndpointRemoved(
+                        endpoint_desc @ EndpointDescriptor::GroupNode(_),
+                    )) => {
+                        let index = self
+                            .groups
+                            .iter()
+                            .position(|group| group.endpoint.descriptor == endpoint_desc);
+                        if let Some(index) = index {
+                            self.groups.guard().remove(index);
+                        }
                     }
                     _ => {}
+                }
+            }
+            Msg::AddGroupNode => {
+                for num in 1.. {
+                    let name = format!("Group {num}");
+                    if self.sonusmix_state.group_nodes.values().all(|group| {
+                        self.sonusmix_state
+                            .endpoints
+                            .get(&EndpointDescriptor::GroupNode(group.id))
+                            .map(|endpoint| endpoint.display_name != name)
+                            .unwrap_or(false)
+                    }) {
+                        SonusmixReducer::emit(SonusmixMsg::AddGroupNode(
+                            name,
+                            GroupNodeKind::Duplex,
+                        ));
+                        break;
+                    }
                 }
             }
             Msg::OpenAbout => {

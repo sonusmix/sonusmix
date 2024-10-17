@@ -168,15 +168,15 @@ impl FactoryComponent for Endpoint {
                 gtk::Scale {
                     set_range: (0.0, 100.0),
                     set_increments: (1.0, 5.0),
-                    #[watch]
-                    #[block_signal(volume_handler)]
-                    set_value: volume_to_slider(self.endpoint.volume),
                     set_draw_value: true,
                     set_format_value_func => move |_, value| format!("{value:.0}%"),
 
+                    #[watch]
+                    #[block_signal(volume_handler)]
+                    set_value: volume_to_slider(self.endpoint.volume),
                     connect_value_changed[sender] => move |scale| {
                         sender.input(EndpointMsg::Volume(scale.value()));
-                        } @volume_handler
+                    } @volume_handler
                 }
             },
 
@@ -372,10 +372,10 @@ impl FactoryComponent for Endpoint {
     }
 }
 
-fn volume_to_slider(volume: f32) -> f64 {
+pub fn volume_to_slider(volume: f32) -> f64 {
     (volume.powf(1.0 / 3.0) * 100.0) as f64
 }
 
-fn slider_to_volume(volume: f64) -> f32 {
+pub fn slider_to_volume(volume: f64) -> f32 {
     (volume as f32 / 100.0).powf(3.0)
 }

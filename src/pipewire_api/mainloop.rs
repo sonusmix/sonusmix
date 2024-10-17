@@ -7,6 +7,9 @@ use pipewire::{
     context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop,
     properties::properties, registry::Registry, spa::param::ParamType, types::ObjectType,
 };
+use ulid::Ulid;
+
+use crate::{state::GroupNodeKind, APP_IDENTIFIER};
 
 use super::{object::Port, store::Store, FromPipewireMessage, Graph, PortKind, ToPipewireMessage};
 
@@ -42,13 +45,15 @@ impl Master {
     fn init_core_listeners(&mut self) -> pipewire::core::Listener {
         self.pw_core
             .add_listener_local()
-            // .info({
-            //     let store = self.store.clone();
-            //     let sender = self.sender.clone();
-            //     move |info| {
-            //         debug!("info event: {info:?}");
-            //     }
-            // })
+            .info({
+                let store = self.store.clone();
+                let sender = self.sender.clone();
+                move |info| {
+                    debug!("info event: {info:?}");
+                    store.borrow_mut().set_sonusmix_client_id(info.id());
+                    let _ = sender.send(ToPipewireMessage::Update);
+                }
+            })
             .done(|id, seq| {
                 debug!("Pipewire done event: {id}, {seq:?}");
             })
@@ -211,7 +216,7 @@ impl Master {
         Ok(())
     }
 
-    fn create_group_node(&self, name: String) -> Result<()> {
+    fn create_group_node(&self, name: String, id: Ulid, kind: GroupNodeKind) -> Result<()> {
         let mut store = self.store.borrow_mut();
         let proxy = self
             .pw_core
@@ -219,25 +224,30 @@ impl Master {
                 "adapter",
                 &properties! {
                     *FACTORY_NAME => "support.null-audio-sink",
-                    *NODE_NAME => &*name,
-                    *MEDIA_CLASS => "Audio/Duplex",
-                    // *OBJECT_LINGER => "false",
+                    *NODE_NAME => format!("sonusmix.group.{id}"),
+                    *NODE_NICK => &*name,
+                    *APP_ICON_NAME => APP_IDENTIFIER,
+                    *MEDIA_CLASS => match kind {
+                        GroupNodeKind::Source => "Audio/Source/Virtual",
+                        GroupNodeKind::Duplex => "Audio/Duplex",
+                        GroupNodeKind::Sink => "Audio/Sink",
+                    },
                     "audio.position" => "[ FL FR ]",
                     "monitor.channel-volumes" => "true",
                     "monitor.passthrough" => "true",
                 },
             )
             .with_context(|| format!("Failed to create group node '{name}'"))?;
-        store.group_nodes.insert(name, proxy);
+        store.group_nodes.insert(id, (proxy, name));
         Ok(())
     }
 
-    fn remove_group_node(&self, name: &str) -> Result<()> {
+    fn remove_group_node(&self, id: Ulid) -> Result<()> {
         let mut store = self.store.borrow_mut();
-        let node = store
+        let (node, _name) = store
             .group_nodes
-            .remove(name)
-            .with_context(|| format!("Group node '{name}' does not exist"))?;
+            .remove(&id)
+            .with_context(|| format!("Group node with id '{id}' does not exist"))?;
 
         // Dropping the proxy deletes the object on the server
         drop(node);
@@ -394,13 +404,13 @@ pub(super) fn init_mainloop(
                         error!("Error removing node links: {err:?}");
                     };
                 }
-                ToPipewireMessage::CreateGroupNode(name) => {
-                    if let Err(err) = master.create_group_node(name) {
+                ToPipewireMessage::CreateGroupNode(name, id, kind) => {
+                    if let Err(err) = master.create_group_node(name, id, kind) {
                         error!("Error creating group node: {err:?}");
                     }
                 }
                 ToPipewireMessage::RemoveGroupNode(name) => {
-                    if let Err(err) = master.remove_group_node(&name) {
+                    if let Err(err) = master.remove_group_node(name) {
                         error!("Error removing group node: {err:?}");
                     }
                 }

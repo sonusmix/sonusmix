@@ -6,7 +6,7 @@ use std::{
     thread::JoinHandle,
 };
 
-use log::error;
+use log::{debug, error};
 use relm4::SharedState;
 
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
     state::persistence::{autosave_task, PersistentState},
 };
 
-use super::{SonusmixMsg, SonusmixState};
+use super::{SonusmixMsg, SonusmixOutputMsg, SonusmixState};
 
 static SONUSMIX_REDUCER: once_cell::sync::OnceCell<SonusmixReducer> =
     once_cell::sync::OnceCell::new();
@@ -29,7 +29,7 @@ pub struct SonusmixReducer {
     pw_sender: mpsc::Sender<ToPipewireMessage>,
     reducer_sender: mpsc::Sender<ReducerMsg>,
     _thread_handle: JoinHandle<()>,
-    state: SharedState<(Arc<SonusmixState>, Option<SonusmixMsg>)>,
+    state: SharedState<(Arc<SonusmixState>, Option<SonusmixOutputMsg>)>,
 }
 
 impl SonusmixReducer {
@@ -59,7 +59,7 @@ impl SonusmixReducer {
                     match message {
                         ReducerMsg::Update(msg) => {
                             let mut state = { reducer.state.read().0.as_ref().clone() };
-                            let mut messages = state.update(&graph, msg.clone());
+                            let (output_msg, mut messages) = state.update(&graph, msg.clone());
                             messages.extend(state.diff(&graph));
                             for message in messages {
                                 reducer
@@ -67,7 +67,7 @@ impl SonusmixReducer {
                                     .send(message)
                                     .expect("Failed to send message to Pipewire thread");
                             }
-                            let state = (Arc::new(state), Some(msg));
+                            let state = (Arc::new(state), output_msg);
                             {
                                 // Write the new version of the state
                                 *reducer.state.write() = state;
@@ -177,7 +177,7 @@ impl SonusmixReducer {
     /// This function will panic if it is called before the reducer has been initialized.
     pub fn subscribe_msg<Msg, F>(sender: &relm4::Sender<Msg>, f: F) -> Arc<SonusmixState>
     where
-        F: Fn(Arc<SonusmixState>, Option<SonusmixMsg>) -> Msg + 'static + Send + Sync,
+        F: Fn(Arc<SonusmixState>, Option<SonusmixOutputMsg>) -> Msg + 'static + Send + Sync,
         Msg: Send + 'static,
     {
         let reducer = SONUSMIX_REDUCER

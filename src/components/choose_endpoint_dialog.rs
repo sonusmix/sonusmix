@@ -266,7 +266,11 @@ impl SimpleComponent for ChooseEndpointDialog {
                 self.visible = false;
             }
             ChooseEndpointDialogMsg::EndpointChosen(endpoint) => {
-                SonusmixReducer::emit(SonusmixMsg::AddEndpoint(endpoint));
+                match endpoint {
+                    EndpointDescriptor::EphemeralNode(id, kind) => SonusmixReducer::emit(SonusmixMsg::AddEphemeralNode(id, kind)),
+                    EndpointDescriptor::Application(id, kind) => SonusmixReducer::emit(SonusmixMsg::AddApplication(id, kind)),
+                    _ => todo!(),
+                }
             }
             ChooseEndpointDialogMsg::SearchUpdated(search_text) => {
                 self.search_text = search_text;

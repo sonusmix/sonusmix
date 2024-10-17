@@ -16,6 +16,9 @@ use thiserror::Error;
 
 pub use identifier::NodeIdentifier;
 pub use object::PortKind;
+use ulid::Ulid;
+
+use crate::state::GroupNodeKind;
 
 const SONUSMIX_APP_NAME: &str = "sonusmix";
 
@@ -70,6 +73,7 @@ pub type Link = object::Link<()>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Graph {
+    pub group_nodes: HashMap<Ulid, (u32, String)>,
     pub clients: HashMap<u32, Client>,
     pub devices: HashMap<u32, Device>,
     pub nodes: HashMap<u32, Node>,
@@ -92,8 +96,8 @@ pub enum ToPipewireMessage {
     RemovePortLink { start_id: u32, end_id: u32 },
     #[rustfmt::skip]
     RemoveNodeLinks { start_id: u32, end_id: u32 },
-    CreateGroupNode(String),
-    RemoveGroupNode(String),
+    CreateGroupNode(String, Ulid, GroupNodeKind),
+    RemoveGroupNode(Ulid),
     Exit,
 }
 
