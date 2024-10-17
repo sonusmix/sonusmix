@@ -11,6 +11,7 @@ derivative = "2.2.0"
 dirs = "5.0.1"
 dotenvy = "0.15.7"
 fuzzy-matcher = "0.3.7"
+indexmap = { version = "2.6.0", features = ["serde"] }
 itertools = "0.13.0"
 log = "0.4.22"
 oneshot = "0.1.8"

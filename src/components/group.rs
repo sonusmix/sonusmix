@@ -8,7 +8,7 @@ use relm4::prelude::*;
 use relm4::{factory::FactoryView, gtk::prelude::*};
 
 use crate::state::{
-    Endpoint as PwEndpoint, EndpointDescriptor, GroupNode, GroupNodeId, SonusmixMsg,
+    Endpoint as PwEndpoint, EndpointDescriptor, GroupNode, GroupNodeId, GroupNodeKind, SonusmixMsg,
     SonusmixReducer, SonusmixState,
 };
 
@@ -30,6 +30,7 @@ pub enum GroupMsg {
     Remove,
     StartRename,
     FinishRename(bool),
+    ChangeKind(GroupNodeKind),
 }
 
 relm4::new_action_group!(GroupMenuActionGroup, "group-menu");
@@ -175,17 +176,28 @@ impl FactoryComponent for Group {
                         gtk::ToggleButton {
                             set_icon_name: "audio-input-microphone-symbolic",
                             set_tooltip: "Input (acts like a microphone)",
+
+                            #[watch]
+                            set_active: self.group_node.kind == GroupNodeKind::Source,
+                            connect_clicked => GroupMsg::ChangeKind(GroupNodeKind::Source)
                         },
                         gtk::ToggleButton {
                             set_icon_name: "object-flip-horizontal-symbolic",
                             set_tooltip: "Duplex (acts like a microphone and headphones at the same time)",
                             set_group: Some(&mode_group),
-                            set_active: true,
+
+                            #[watch]
+                            set_active: self.group_node.kind == GroupNodeKind::Duplex,
+                            connect_clicked => GroupMsg::ChangeKind(GroupNodeKind::Duplex)
                         },
                         gtk::ToggleButton {
                             set_icon_name: "audio-headphones-symbolic",
                             set_tooltip: "Output (acts like headphones)",
                             set_group: Some(&mode_group),
+
+                            #[watch]
+                            set_active: self.group_node.kind == GroupNodeKind::Sink,
+                            connect_clicked => GroupMsg::ChangeKind(GroupNodeKind::Sink)
                         }
                     },
                     #[wrap(Some)]
@@ -340,6 +352,9 @@ impl FactoryComponent for Group {
                         Some(self.name_buffer.text().to_string()),
                     ));
                 }
+            }
+            GroupMsg::ChangeKind(kind) => {
+                SonusmixReducer::emit(SonusmixMsg::ChangeGroupNodeKind(self.group_node.id, kind));
             }
         }
     }

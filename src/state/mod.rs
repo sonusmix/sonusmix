@@ -1,6 +1,7 @@
 mod persistence;
 mod reducer;
 
+use indexmap::IndexMap;
 use log::{debug, error, warn};
 pub use reducer::SonusmixReducer;
 
@@ -25,6 +26,7 @@ pub enum SonusmixMsg {
     SetVolumeLocked(EndpointDescriptor, bool),
     /// If the parameter is None, then reset the name
     RenameEndpoint(EndpointDescriptor, Option<String>),
+    ChangeGroupNodeKind(GroupNodeId, GroupNodeKind),
     Link(EndpointDescriptor, EndpointDescriptor),
     RemoveLink(EndpointDescriptor, EndpointDescriptor),
     SetLinkLocked(EndpointDescriptor, EndpointDescriptor, bool),
@@ -45,7 +47,7 @@ pub struct SonusmixState {
     pub links: Vec<Link>,
     /// Stores data for matching Pipewire nodes to persistent nodes. Entries are added to this map
     /// when new nodes are detected and added to the pipewire
-    pub persistent_nodes: HashMap<PersistentNodeId, (NodeIdentifier, PortKind)>,
+    pub persistent_nodes: IndexMap<PersistentNodeId, (NodeIdentifier, PortKind)>,
     pub applications: HashMap<ApplicationId, Application>,
     pub devices: HashMap<DeviceId, Device>,
     pub group_nodes: HashMap<GroupNodeId, GroupNode>,
@@ -463,6 +465,25 @@ impl SonusmixState {
                         // The other cases are unlocked already and don't need to be changed
                         (_, false) => {}
                     };
+
+                    None
+                }
+                SonusmixMsg::ChangeGroupNodeKind(id, kind) => {
+                    let descriptor = EndpointDescriptor::GroupNode(id);
+                    if let (Some(endpoint), Some(group_node)) = (
+                        self.endpoints.get(&descriptor),
+                        self.group_nodes.get_mut(&id),
+                    ) {
+                        if kind != group_node.kind {
+                            pipewire_messages.push(ToPipewireMessage::RemoveGroupNode(id.0));
+                            pipewire_messages.push(ToPipewireMessage::CreateGroupNode(
+                                endpoint.display_name.clone(),
+                                id.0,
+                                kind,
+                            ));
+                            group_node.kind = kind;
+                        }
+                    }
 
                     None
                 }
@@ -1521,7 +1542,7 @@ mod tests {
             endpoints: HashMap::from([(sonusmix_node, sonusmix_node_endpoint); 1]),
             candidates: Vec::new(),
             links: Vec::new(),
-            persistent_nodes: HashMap::new(),
+            persistent_nodes: IndexMap::new(),
             applications: HashMap::new(),
             devices: HashMap::new(),
         };
