@@ -1,12 +1,12 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, OnceLock, RwLock,
     },
     thread::JoinHandle,
 };
 
-use log::{debug, error};
+use log::error;
 use relm4::SharedState;
 
 use crate::{
@@ -16,8 +16,7 @@ use crate::{
 
 use super::{SonusmixMsg, SonusmixOutputMsg, SonusmixState};
 
-static SONUSMIX_REDUCER: once_cell::sync::OnceCell<SonusmixReducer> =
-    once_cell::sync::OnceCell::new();
+static SONUSMIX_REDUCER: RwLock<OnceLock<SonusmixReducer>> = RwLock::new(OnceLock::new());
 
 enum ReducerMsg {
     Update(SonusmixMsg),
@@ -28,7 +27,7 @@ enum ReducerMsg {
 pub struct SonusmixReducer {
     pw_sender: mpsc::Sender<ToPipewireMessage>,
     reducer_sender: mpsc::Sender<ReducerMsg>,
-    _thread_handle: JoinHandle<()>,
+    thread_handle: JoinHandle<()>,
     state: SharedState<(Arc<SonusmixState>, Option<SonusmixOutputMsg>)>,
 }
 
@@ -48,11 +47,21 @@ impl SonusmixReducer {
             "SonusmixReducer::init() may only be called once"
         );
 
+        // Lock reducer so the spawned thread has to wait when it starts
+        let reducer = SONUSMIX_REDUCER
+            .write()
+            .expect("panic if reducer lock is poisoned");
+
         let (tx, rx) = mpsc::channel::<ReducerMsg>();
         let reducer_handle = std::thread::Builder::new()
             .name("state-diff".to_string())
             .spawn(move || {
-                let reducer = SONUSMIX_REDUCER.wait();
+                let reducer_guard = SONUSMIX_REDUCER
+                    .read()
+                    .expect("panic if reducer lock is poisoned");
+                let reducer = reducer_guard
+                    .get()
+                    .expect("reducer was not initialized by SonusmixReducer::init()");
                 let mut graph = Graph::default();
 
                 for message in rx {
@@ -115,10 +124,10 @@ impl SonusmixReducer {
 
         // TODO: Use the result value from this instead of the AtomicBool to guarantee the reducer
         // is only initialzed once. This may require sending an exit message to the thread, though.
-        let _ = SONUSMIX_REDUCER.set(Self {
+        let _ = reducer.set(Self {
             pw_sender,
             reducer_sender: tx,
-            _thread_handle: reducer_handle,
+            thread_handle: reducer_handle,
             // TODO: initialize from disk
             state,
         });
@@ -128,14 +137,22 @@ impl SonusmixReducer {
 
         // Return a function that sends a `GraphUpdate` message when called
         |graph| {
-            if let Some(reducer) = SONUSMIX_REDUCER.get() {
+            if let Some(reducer) = SONUSMIX_REDUCER
+                .read()
+                .expect("panic if reducer lock is poisoned")
+                .get()
+            {
                 let _ = reducer.reducer_sender.send(ReducerMsg::GraphUpdate(graph));
             }
         }
     }
 
     pub fn emit(msg: SonusmixMsg) {
-        if let Some(reducer) = SONUSMIX_REDUCER.get() {
+        if let Some(reducer) = SONUSMIX_REDUCER
+            .read()
+            .expect("panic if reducer lock is poisoned")
+            .get()
+        {
             let _ = reducer.reducer_sender.send(ReducerMsg::Update(msg));
         }
     }
@@ -143,8 +160,28 @@ impl SonusmixReducer {
     // Save the state to a file, and stop the reducer thread. Any updates after this will not be
     // processed.
     pub fn save_and_exit() {
-        if let Some(reducer) = SONUSMIX_REDUCER.get() {
-            let _ = reducer.reducer_sender.send(ReducerMsg::Exit);
+        // Get a read lock, tell the reducer thread to exit, and then get a write lock in order to
+        // join it
+        {
+            if let Some(reducer) = SONUSMIX_REDUCER
+                .read()
+                .expect("panic if reducer lock is poisoned")
+                .get()
+            {
+                let _ = reducer.reducer_sender.send(ReducerMsg::Exit);
+            } else {
+                return;
+            }
+        }
+        if let Some(reducer) = SONUSMIX_REDUCER
+            .write()
+            .expect("panic if reducer lock is poisoned")
+            .take()
+        {
+            reducer
+                .thread_handle
+                .join()
+                .expect("panic if reducer thread panicked");
         }
     }
 
@@ -158,13 +195,17 @@ impl SonusmixReducer {
         F: Fn(Arc<SonusmixState>) -> Msg + 'static + Send + Sync,
         Msg: Send + 'static,
     {
-        let reducer = SONUSMIX_REDUCER
+        let reducer_guard = SONUSMIX_REDUCER
+            .read()
+            .expect("panic if reducer lock is poisoned");
+        let reducer = reducer_guard
             .get()
             .expect("The reducer must be initialized before subscribing to it");
         reducer
             .state
             .subscribe(sender, move |(state, _)| f(state.clone()));
-        reducer.state.read().0.clone()
+        let state = reducer.state.read().0.clone();
+        state
     }
 
     /// Subscribe to receive updates to the Sonusmix state, along with a copy of the message that
@@ -180,14 +221,18 @@ impl SonusmixReducer {
         F: Fn(Arc<SonusmixState>, Option<SonusmixOutputMsg>) -> Msg + 'static + Send + Sync,
         Msg: Send + 'static,
     {
-        let reducer = SONUSMIX_REDUCER
+        let reducer_guard = SONUSMIX_REDUCER
+            .read()
+            .expect("panic if reducer lock is poisoned");
+        let reducer = reducer_guard
             .get()
             .expect("The reducer must be initialized before subscribing to it");
 
         reducer
             .state
             .subscribe(sender, move |(state, msg)| f(state.clone(), msg.clone()));
-        reducer.state.read().0.clone()
+        let state = reducer.state.read().0.clone();
+        state
     }
 }
 
