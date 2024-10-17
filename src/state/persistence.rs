@@ -10,7 +10,7 @@ use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
-use crate::{APP_IDENTIFIER, APP_VERSION};
+use crate::{SONUSMIX_APP_ID, APP_VERSION};
 
 use super::{SonusmixReducer, SonusmixState};
 
@@ -41,9 +41,9 @@ impl PersistentState {
 
     pub fn save(&self) -> Result<()> {
         let state_dir = data_dir().context("Could not resolve data dir")?;
-        create_dir_all(state_dir.join(APP_IDENTIFIER))
+        create_dir_all(state_dir.join(SONUSMIX_APP_ID))
             .context("Failed to create Sonusmix data dir")?;
-        let state_file = File::create(state_dir.join(APP_IDENTIFIER).join("state.ron"))
+        let state_file = File::create(state_dir.join(SONUSMIX_APP_ID).join("state.ron"))
             .context("Failed to create state file")?;
         ron::ser::to_writer_pretty(state_file, self, PrettyConfig::new())
             .context("Failed to serialize state")
@@ -51,7 +51,7 @@ impl PersistentState {
 
     pub fn load() -> Result<Self> {
         let state_dir = data_dir().context("Could not resolve data dir")?;
-        let state_file = File::open(state_dir.join(APP_IDENTIFIER).join("state.ron"))
+        let state_file = File::open(state_dir.join(SONUSMIX_APP_ID).join("state.ron"))
             .context("Failed to open state file")?;
         ron::de::from_reader(state_file).context("Failed to deserialize state")
     }

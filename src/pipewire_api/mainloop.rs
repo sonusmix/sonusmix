@@ -10,7 +10,7 @@ use pipewire::{
 };
 use ulid::Ulid;
 
-use crate::{state::GroupNodeKind, APP_IDENTIFIER};
+use crate::{pipewire_api::SONUSMIX_APP_NAME, state::GroupNodeKind, SONUSMIX_APP_ID};
 
 use super::{object::Port, store::Store, FromPipewireMessage, Graph, PortKind, ToPipewireMessage};
 
@@ -226,7 +226,12 @@ impl Master {
                     *FACTORY_NAME => "support.null-audio-sink",
                     *NODE_NAME => format!("sonusmix.group.{id}"),
                     *NODE_NICK => &*name,
-                    *APP_ICON_NAME => APP_IDENTIFIER,
+                    *NODE_DESCRIPTION => &*name,
+                    *APP_ICON_NAME => SONUSMIX_APP_ID,
+                    *MEDIA_ICON_NAME => SONUSMIX_APP_ID,
+                    *DEVICE_ICON_NAME => SONUSMIX_APP_ID,
+                    "icon_name" => SONUSMIX_APP_ID,
+                    *APP_NAME => SONUSMIX_APP_NAME,
                     *MEDIA_CLASS => match kind {
                         GroupNodeKind::Source => "Audio/Source/Virtual",
                         GroupNodeKind::Duplex => "Audio/Duplex",
@@ -362,6 +367,7 @@ pub(super) fn init_mainloop(
             let pw_core = context
                 .connect(Some(properties! {
                     *MEDIA_CATEGORY => "Manager",
+                    *APP_ICON_NAME => SONUSMIX_APP_ID,
                 }))
                 .context("Failed to connect to Pipewire")?;
             let registry = pw_core

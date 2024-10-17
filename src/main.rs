@@ -7,7 +7,7 @@ use log::debug;
 use pipewire_api::PipewireHandle;
 use relm4::RelmApp;
 
-const APP_IDENTIFIER: &str = "org.sonusmix.Sonusmix";
+const SONUSMIX_APP_ID: &str = "org.sonusmix.Sonusmix";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
