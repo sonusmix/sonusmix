@@ -2,6 +2,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use log::debug;
+use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::prelude::*;
 use relm4::{factory::FactoryView, gtk::prelude::*};
 
@@ -27,6 +28,10 @@ pub enum GroupMsg {
     FinishRename(bool),
 }
 
+relm4::new_action_group!(GroupMenuActionGroup, "group-menu");
+relm4::new_stateless_action!(RemoveAction, GroupMenuActionGroup, "remove");
+relm4::new_stateless_action!(RenameAction, GroupMenuActionGroup, "rename");
+
 #[relm4::factory(pub)]
 impl FactoryComponent for Group {
     type Init = GroupNodeId;
@@ -38,13 +43,34 @@ impl FactoryComponent for Group {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
+            set_hexpand: false,
             set_spacing: 8,
             set_margin_all: 4,
 
-            gtk::Label {
-                set_halign: gtk::Align::Start,
-                set_css_classes: &["heading"],
-                set_label: &self.endpoint.display_name,
+            gtk::Box {
+                set_orientation: gtk::Orientation::Horizontal,
+                set_spacing: 8,
+
+                gtk::Label {
+                    set_hexpand: true,
+                    set_halign: gtk::Align::Start,
+                    set_css_classes: &["heading"],
+                    set_label: &self.endpoint.display_name,
+                },
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_spacing: 4,
+
+                    #[name(group_menu_button)]
+                    gtk::MenuButton {
+                        set_halign: gtk::Align::End,
+                        set_icon_name: "view-more-symbolic",
+                        set_menu_model: Some(&group_menu)
+                    },
+                    gtk::Label {
+                        set_label: "id: 1234",
+                    }
+                }
             },
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
@@ -157,6 +183,13 @@ impl FactoryComponent for Group {
         },
     }
 
+    menu! {
+        group_menu: {
+            "Remove" => RemoveAction,
+            "Rename" => RenameAction,
+        }
+    }
+
     fn init_model(id: GroupNodeId, _index: &DynamicIndex, sender: FactorySender<Self>) -> Self {
         let sonusmix_state =
             SonusmixReducer::subscribe(sender.input_sender(), GroupMsg::UpdateState);
@@ -185,6 +218,23 @@ impl FactoryComponent for Group {
         sender: FactorySender<Self>,
     ) -> Self::Widgets {
         let widgets = view_output!();
+
+        let mut group = RelmActionGroup::<GroupMenuActionGroup>::new();
+        let remove_action: RelmAction<RemoveAction> = RelmAction::new_stateless({
+            let sender = sender.clone();
+            move |_| {
+                sender.input(GroupMsg::Remove);
+            }
+        });
+        group.add_action(remove_action);
+        let rename_action: RelmAction<RenameAction> = RelmAction::new_stateless({
+            let sender = sender.clone();
+            move |_| {
+                sender.input(GroupMsg::StartRename);
+            }
+        });
+        group.add_action(rename_action);
+        group.register_for_widget(&widgets.group_menu_button);
 
         widgets
     }

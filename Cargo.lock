@@ -1346,7 +1346,6 @@ dependencies = [
  "fuzzy-matcher",
  "itertools 0.13.0",
  "log",
- "once_cell",
  "oneshot",
  "pipewire",
  "relm4",
