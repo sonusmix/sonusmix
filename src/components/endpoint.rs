@@ -205,8 +205,6 @@ impl FactoryComponent for Endpoint {
                     #[name(mute_button)]
                     gtk::ToggleButton {
                         #[watch]
-                        set_active: self.endpoint.volume_locked_muted.is_muted().unwrap_or(false),
-                        #[watch]
                         set_icon_name: if mute_button.is_active()
                             { "audio-volume-muted-symbolic" } else { "audio-volume-high-symbolic" },
                         #[watch]
@@ -216,14 +214,14 @@ impl FactoryComponent for Endpoint {
                         set_css_classes: if mute_button.is_active()
                             { &["destructive-action", "image-button"] } else { &["flat", "image-button"] },
 
+                        #[watch]
+                        set_active: self.endpoint.volume_locked_muted.is_muted().unwrap_or(false),
                         connect_clicked => EndpointMsg::ToggleMute,
                     },
                     #[name(volume_lock_button)]
                     gtk::ToggleButton {
                         add_css_class: "flat",
 
-                        #[watch]
-                        set_active: self.endpoint.volume_locked_muted.is_locked(),
                         #[watch]
                         set_icon_name: if volume_lock_button.is_active()
                             { "changes-prevent-symbolic" } else { "changes-allow-symbolic" },
@@ -235,6 +233,8 @@ impl FactoryComponent for Endpoint {
                             "Prevent volume changes outside of Sonusmix"
                         },
 
+                        #[watch]
+                        set_active: self.endpoint.volume_locked_muted.is_locked(),
                         connect_clicked => EndpointMsg::ToggleLocked,
                     },
                     gtk::Button {

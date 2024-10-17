@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
+use log::debug;
 use relm4::prelude::*;
 use relm4::{factory::FactoryView, gtk::prelude::*};
 
@@ -127,6 +128,8 @@ impl FactoryComponent for Group {
                             set_css_classes: if mute_button.is_active()
                                 { &["destructive-action", "image-button"] } else { &["flat", "image-button"] },
 
+                            #[watch]
+                            set_active: self.endpoint.volume_locked_muted.is_muted().unwrap_or(false),
                             connect_clicked => GroupMsg::ToggleMute,
                         },
                         #[name(volume_lock_button)]
@@ -144,6 +147,8 @@ impl FactoryComponent for Group {
                                 "Prevent volume changes outside of Sonusmix"
                             },
 
+                            #[watch]
+                            set_active: self.endpoint.volume_locked_muted.is_locked(),
                             connect_clicked => GroupMsg::ToggleLocked,
                         },
                     }

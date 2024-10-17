@@ -570,12 +570,7 @@ impl SonusmixState {
             .flatten()
             .collect();
         let mut endpoint_nodes = HashMap::new();
-        for endpoint in self
-            .active_sources
-            .iter()
-            .chain(self.active_sinks.iter())
-            .copied()
-        {
+        for endpoint in self.endpoints.keys().copied().collect::<Vec<_>>() {
             if let Some(nodes) = self.resolve_endpoint(endpoint, graph) {
                 // Mark the endpoint's nodes as seen
                 for node in &nodes {
@@ -925,16 +920,12 @@ impl SonusmixState {
                 // (!nodes.is_empty()).then_some(nodes)
                 todo!()
             }
-            EndpointDescriptor::GroupNode(id) => {
-                let result = graph
-                    .group_nodes
-                    .get(&id.0)
-                    .and_then(|group_node| group_node.id)
-                    .and_then(|id| graph.nodes.get(&id))
-                    .map(|node| vec![node]);
-                debug!("resolve group node, id {id:?}, {:?}, {result:?}", graph.group_nodes);
-                result
-            }
+            EndpointDescriptor::GroupNode(id) => graph
+                .group_nodes
+                .get(&id.0)
+                .and_then(|group_node| group_node.id)
+                .and_then(|id| graph.nodes.get(&id))
+                .map(|node| vec![node]),
             EndpointDescriptor::Application(id, kind) => {
                 let application = self.applications.get(&id)?;
                 // Resolve all the exceptions. Exceptions should only be an ephemeral or persistent
