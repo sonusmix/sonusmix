@@ -929,7 +929,8 @@ impl SonusmixState {
                 let result = graph
                     .group_nodes
                     .get(&id.0)
-                    .and_then(|(id, _)| graph.nodes.get(id))
+                    .and_then(|group_node| group_node.id)
+                    .and_then(|id| graph.nodes.get(&id))
                     .map(|node| vec![node]);
                 debug!("resolve group node, id {id:?}, {:?}, {result:?}", graph.group_nodes);
                 result
@@ -1917,6 +1918,7 @@ mod tests {
                 start_id: 1,
                 end_id: 2,
             };
+            assert!(output_msg.is_none());
             assert!(messages.contains(&expected_message));
         }
 

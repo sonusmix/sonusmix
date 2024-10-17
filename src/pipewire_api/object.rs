@@ -113,6 +113,29 @@ impl<'a> ObjectConvertErrorExt for GlobalObject<&'a DictRef> {
     }
 }
 
+#[derive(Derivative, Clone)]
+#[derivative(Debug)]
+pub struct GroupNode<P = pipewire::node::Node, L = pipewire::proxy::ProxyListener> {
+    pub id: Option<u32>,
+    pub name: String,
+    pub(super) proxy: P,
+    #[derivative(Debug = "ignore")]
+    #[allow(unused)]
+    // This just needs to be stored here because dropping it removes the listener
+    pub(super) listener: L,
+}
+
+impl GroupNode {
+    pub fn without_proxy(&self) -> GroupNode<(), ()> {
+        GroupNode {
+            id: self.id,
+            name: self.name.clone(),
+            proxy: (),
+            listener: (),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Client<P = pipewire::client::Client> {

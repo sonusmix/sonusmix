@@ -5,7 +5,8 @@ use anyhow::{anyhow, Context, Result};
 use log::{debug, error};
 use pipewire::{
     context::Context as PwContext, core::Core, keys::*, main_loop::MainLoop,
-    properties::properties, registry::Registry, spa::param::ParamType, types::ObjectType,
+    properties::properties, proxy::ProxyT, registry::Registry, spa::param::ParamType,
+    types::ObjectType,
 };
 use ulid::Ulid;
 
@@ -217,7 +218,6 @@ impl Master {
     }
 
     fn create_group_node(&self, name: String, id: Ulid, kind: GroupNodeKind) -> Result<()> {
-        let mut store = self.store.borrow_mut();
         let proxy = self
             .pw_core
             .create_object::<pipewire::node::Node>(
@@ -238,19 +238,45 @@ impl Master {
                 },
             )
             .with_context(|| format!("Failed to create group node '{name}'"))?;
-        store.group_nodes.insert(id, (proxy, name));
+        let listener = proxy
+            .upcast_ref()
+            .add_listener_local()
+            .bound({
+                let store = self.store.clone();
+                move |global_id| {
+                    if let Some(group_node) = store.borrow_mut().group_nodes.get_mut(&id) {
+                        group_node.id = Some(global_id);
+                    }
+                }
+            })
+            .removed({
+                let store = self.store.clone();
+                move || {
+                    store.borrow_mut().group_nodes.remove(&id);
+                }
+            })
+            .register();
+        self.store.borrow_mut().group_nodes.insert(
+            id,
+            super::object::GroupNode {
+                id: None,
+                name,
+                proxy,
+                listener,
+            },
+        );
         Ok(())
     }
 
     fn remove_group_node(&self, id: Ulid) -> Result<()> {
         let mut store = self.store.borrow_mut();
-        let (node, _name) = store
+        let group_node = store
             .group_nodes
             .remove(&id)
             .with_context(|| format!("Group node with id '{id}' does not exist"))?;
 
         // Dropping the proxy deletes the object on the server
-        drop(node);
+        drop(group_node);
 
         Ok(())
     }

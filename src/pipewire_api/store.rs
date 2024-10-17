@@ -5,7 +5,6 @@ use ulid::Ulid;
 
 use pipewire::{
     node::NodeInfoRef,
-    proxy::ProxyT,
     registry::{GlobalObject, Registry},
     spa::{
         param::ParamType,
@@ -16,7 +15,9 @@ use pipewire::{
 };
 
 use super::{
-    object::{Client, Device, EndpointId, Link, Node, ObjectConvertError, Port, PortKind},
+    object::{
+        Client, Device, EndpointId, GroupNode, Link, Node, ObjectConvertError, Port, PortKind,
+    },
     pod::{build_node_mute_pod, build_node_volume_pod, DeviceActiveRoute, NodeProps},
     Graph,
 };
@@ -27,7 +28,7 @@ pub(super) struct Store {
     /// This map is used to store proxies of group nodes created by Sonusmix. They will be
     /// duplicated elsewhere in the store, but to avoid overcomplicating that code, we will store
     /// them here since dropping these copies deletes the object on the server.
-    pub(super) group_nodes: HashMap<Ulid, (pipewire::node::Node, String)>,
+    pub(super) group_nodes: HashMap<Ulid, GroupNode>,
     pub(super) clients: HashMap<u32, Client>,
     pub(super) devices: HashMap<u32, Device>,
     pub(super) nodes: HashMap<u32, Node>,
@@ -392,13 +393,7 @@ impl Store {
     #[rustfmt::skip] // Rustfmt puts each call on its own line which is really hard to read
     pub fn dump_graph(&self) -> Graph {
         Graph {
-            group_nodes: self
-                .group_nodes
-                .iter()
-                .map(|(ulid_id, (group_node, name))| {
-                    (*ulid_id, (group_node.upcast_ref().id(), name.clone()))
-                })
-                .collect(),
+            group_nodes: self.group_nodes.iter().map(|(id, group_node)| (*id, group_node.without_proxy())).collect(),
             clients: self.clients.iter().map(|(id, client)| (*id, client.without_proxy())).collect(),
             devices: self.devices.iter().map(|(id, device)| (*id, device.without_proxy())).collect(),
             nodes: self.nodes.iter().map(|(id, node)| (*id, node.without_proxy())).collect(),
