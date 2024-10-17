@@ -479,10 +479,11 @@ impl SonusmixState {
                             // re-create the Pipewire node with a new name
                             pipewire_messages.push(ToPipewireMessage::RemoveGroupNode(id.0));
                             pipewire_messages.push(ToPipewireMessage::CreateGroupNode(
-                                name,
+                                name.clone(),
                                 id.0,
                                 group_node.kind,
                             ));
+                            endpoint.display_name = name;
                         }
                     }
 

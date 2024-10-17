@@ -100,7 +100,7 @@ impl FactoryComponent for Endpoint {
                             connect_map => |entry| { entry.grab_focus(); },
                             connect_activate => EndpointMsg::FinishRename(true),
 
-                            // Add an event controller to cancel renameing on Esc
+                            // Add an event controller to cancel renaming on Esc
                             add_controller = gtk::EventControllerKey {
                                 connect_key_pressed[sender] => move |_, key, _, _| {
                                     if key == gtk::gdk::Key::Escape {
@@ -129,6 +129,7 @@ impl FactoryComponent for Endpoint {
                             set_css_classes: if self.endpoint.is_placeholder
                                 { &["heading", "dim-label"] } else { &["heading"] },
 
+                            // Start renaming when the user double-clicks the endpoint name
                             add_controller = gtk::GestureClick {
                                 connect_released[sender] => move |_, num_presses, _, _| {
                                     if num_presses >= 2 {

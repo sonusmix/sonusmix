@@ -140,6 +140,7 @@ impl Component for App {
                                 groups_list -> gtk::Box {
                                     set_orientation: gtk::Orientation::Horizontal,
                                     set_margin_all: 4,
+                                    set_spacing: 8,
                                 }
                             }
                         }

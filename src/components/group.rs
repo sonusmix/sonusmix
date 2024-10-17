@@ -1,13 +1,15 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
+use gtk::glib::Propagation;
 use log::debug;
 use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::prelude::*;
 use relm4::{factory::FactoryView, gtk::prelude::*};
 
 use crate::state::{
-    Endpoint as PwEndpoint, EndpointDescriptor, GroupNode, GroupNodeId, SonusmixMsg, SonusmixReducer, SonusmixState
+    Endpoint as PwEndpoint, EndpointDescriptor, GroupNode, GroupNodeId, SonusmixMsg,
+    SonusmixReducer, SonusmixState,
 };
 
 use super::endpoint::{slider_to_volume, volume_to_slider};
@@ -15,6 +17,8 @@ use super::endpoint::{slider_to_volume, volume_to_slider};
 pub struct Group {
     pub endpoint: PwEndpoint,
     pub group_node: GroupNode,
+    renaming: bool,
+    name_buffer: gtk::EntryBuffer,
 }
 
 #[derive(Debug, Clone)]
@@ -51,12 +55,56 @@ impl FactoryComponent for Group {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 8,
 
-                gtk::Label {
-                    set_hexpand: true,
-                    set_halign: gtk::Align::Start,
-                    set_css_classes: &["heading"],
-                    set_label: &self.endpoint.display_name,
+                if self.renaming {
+                    gtk::Entry::with_buffer(&self.name_buffer) {
+                        set_width_chars: 15,
+                        set_max_width_chars: 15,
+                        connect_map => |entry| { entry.grab_focus(); },
+                        connect_activate => GroupMsg::FinishRename(true),
+
+                        // Add an event controller to cancel renaming on Esc
+                        add_controller = gtk::EventControllerKey {
+                            connect_key_pressed[sender] => move |_, key, _, _| {
+                                if key == gtk::gdk::Key::Escape {
+                                    sender.input(GroupMsg::FinishRename(false));
+                                    Propagation::Stop
+                                } else {
+                                    Propagation::Proceed
+                                }
+                            }
+                        },
+                        add_controller = gtk::EventControllerFocus {
+                            connect_leave => GroupMsg::FinishRename(false),
+                        }
+                    }
+                } else {
+                    gtk::Label {
+                        set_halign: gtk::Align::Fill,
+                        set_justify: gtk::Justification::Center,
+                        set_width_chars: 15,
+                        set_max_width_chars: 15,
+                        set_lines: 3,
+                        // set_wrap: true,
+                        set_wrap_mode: gtk::pango::WrapMode::WordChar,
+                        set_ellipsize: gtk::pango::EllipsizeMode::End,
+                        set_css_classes: &["heading"],
+
+                        #[watch]
+                        set_label: &self.endpoint.display_name,
+                        #[watch]
+                        set_tooltip: &self.endpoint.display_name,
+
+                        // Start renaming when the user double-clicks the group name
+                        add_controller = gtk::GestureClick {
+                            connect_released[sender] => move |_, num_presses, _, _| {
+                                if num_presses >= 2 {
+                                    sender.input(GroupMsg::StartRename);
+                                }
+                            }
+                        }
+                    }
                 },
+
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
                     set_spacing: 4,
@@ -94,6 +142,7 @@ impl FactoryComponent for Group {
                 },
                 gtk::CenterBox {
                     set_orientation: gtk::Orientation::Vertical,
+                    set_hexpand: true,
 
                     #[wrap(Some)]
                     set_start_widget = &gtk::Box {
@@ -114,32 +163,35 @@ impl FactoryComponent for Group {
                                 set_label: "Connect\nSinks",
                             }
                         },
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Horizontal,
-                            add_css_class: "linked",
+                    },
+                    #[wrap(Some)]
+                    set_center_widget = &gtk::Box {
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_halign: gtk::Align::Center,
+                        set_margin_vertical: 4,
+                        add_css_class: "linked",
 
-                            #[name(mode_group)]
-                            gtk::ToggleButton {
-                                set_icon_name: "audio-input-microphone-symbolic",
-                                set_tooltip: "Input (acts like a microphone)",
-                            },
-                            gtk::ToggleButton {
-                                set_icon_name: "object-flip-horizontal-symbolic",
-                                set_tooltip: "Duplex (acts like a microphone and headphones at the same time)",
-                                set_group: Some(&mode_group),
-                                set_active: true,
-                            },
-                            gtk::ToggleButton {
-                                set_icon_name: "audio-headphones-symbolic",
-                                set_tooltip: "Output (acts like headphones)",
-                                set_group: Some(&mode_group),
-                            }
+                        #[name(mode_group)]
+                        gtk::ToggleButton {
+                            set_icon_name: "audio-input-microphone-symbolic",
+                            set_tooltip: "Input (acts like a microphone)",
                         },
+                        gtk::ToggleButton {
+                            set_icon_name: "object-flip-horizontal-symbolic",
+                            set_tooltip: "Duplex (acts like a microphone and headphones at the same time)",
+                            set_group: Some(&mode_group),
+                            set_active: true,
+                        },
+                        gtk::ToggleButton {
+                            set_icon_name: "audio-headphones-symbolic",
+                            set_tooltip: "Output (acts like headphones)",
+                            set_group: Some(&mode_group),
+                        }
                     },
                     #[wrap(Some)]
                     set_end_widget = &gtk::Box {
                         set_orientation: gtk::Orientation::Horizontal,
-                        set_margin_top: 4,
+                        set_halign: gtk::Align::Start,
                         set_spacing: 4,
 
                         #[name(mute_button)]
@@ -204,9 +256,13 @@ impl FactoryComponent for Group {
             .expect("group componend failed to find matching group node on init")
             .clone();
 
+        let name_buffer = gtk::EntryBuffer::new(None::<&str>);
+
         Self {
             endpoint,
             group_node,
+            renaming: false,
+            name_buffer,
         }
     }
 
@@ -250,13 +306,21 @@ impl FactoryComponent for Group {
                     self.group_node = group_node.clone();
                 }
             }
-            GroupMsg::Volume(volume) => SonusmixReducer::emit(SonusmixMsg::SetVolume(self.endpoint.descriptor, slider_to_volume(volume))),
+            GroupMsg::Volume(volume) => SonusmixReducer::emit(SonusmixMsg::SetVolume(
+                self.endpoint.descriptor,
+                slider_to_volume(volume),
+            )),
             GroupMsg::ToggleMute => {
-                let mute = self.endpoint.volume_locked_muted.is_muted().map(|mute| !mute).unwrap_or(true);
+                let mute = self
+                    .endpoint
+                    .volume_locked_muted
+                    .is_muted()
+                    .map(|mute| !mute)
+                    .unwrap_or(true);
                 SonusmixReducer::emit(SonusmixMsg::SetMute(self.endpoint.descriptor, mute));
             }
             GroupMsg::ToggleLocked => {
-                SonusmixReducer::emit(SonusmixMsg::SetVolumeLocked (
+                SonusmixReducer::emit(SonusmixMsg::SetVolumeLocked(
                     self.endpoint.descriptor,
                     !self.endpoint.volume_locked_muted.is_locked(),
                 ));
@@ -264,7 +328,19 @@ impl FactoryComponent for Group {
             GroupMsg::Remove => {
                 SonusmixReducer::emit(SonusmixMsg::RemoveEndpoint(self.endpoint.descriptor));
             }
-            _ => {}
+            GroupMsg::StartRename => {
+                self.renaming = true;
+                self.name_buffer.set_text(&self.endpoint.display_name);
+            }
+            GroupMsg::FinishRename(confirm) => {
+                self.renaming = false;
+                if confirm {
+                    SonusmixReducer::emit(SonusmixMsg::RenameEndpoint(
+                        self.endpoint.descriptor,
+                        Some(self.name_buffer.text().to_string()),
+                    ));
+                }
+            }
         }
     }
 }
