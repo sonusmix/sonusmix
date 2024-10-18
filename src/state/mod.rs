@@ -48,10 +48,10 @@ pub struct SonusmixState {
     pub links: Vec<Link>,
     /// Stores data for matching Pipewire nodes to persistent nodes. Entries are added to this map
     /// when new nodes are detected and added to the pipewire
-    pub persistent_nodes: IndexMap<PersistentNodeId, (NodeIdentifier, PortKind)>,
+    pub persistent_nodes: HashMap<PersistentNodeId, (NodeIdentifier, PortKind)>,
     pub applications: HashMap<ApplicationId, Application>,
     pub devices: HashMap<DeviceId, Device>,
-    pub group_nodes: HashMap<GroupNodeId, GroupNode>,
+    pub group_nodes: IndexMap<GroupNodeId, GroupNode>,
 }
 
 impl SonusmixState {
@@ -116,6 +116,7 @@ impl SonusmixState {
                         GroupNode {
                             id,
                             kind,
+                            pipewire_id: None,
                             pending: true,
                         },
                     );
@@ -525,37 +526,7 @@ impl SonusmixState {
     // after updates from the backend.
     fn diff(&mut self, graph: &Graph) -> Vec<ToPipewireMessage> {
         let endpoint_nodes = self.diff_nodes(graph);
-        let mut messages = Vec::new();
-        // Check that all of the group nodes have a corresponding node. If there isn't one, create it.
-        for id in self.group_nodes.keys().copied().collect::<Vec<_>>() {
-            let endpoint_desc = EndpointDescriptor::GroupNode(id);
-            if self.resolve_endpoint(endpoint_desc, graph).is_some() {
-                let group_node = self
-                    .group_nodes
-                    .get_mut(&id)
-                    .expect("We know the group node must exist");
-                if group_node.pending {
-                    group_node.pending = false;
-                }
-            } else {
-                let group_node = self
-                    .group_nodes
-                    .get_mut(&id)
-                    .expect("We know the group node must exist");
-                if !group_node.pending {
-                    group_node.pending = true;
-                    let endpoint = self
-                        .endpoints
-                        .get(&endpoint_desc)
-                        .expect("We know the endpoint must exist");
-                    messages.push(ToPipewireMessage::CreateGroupNode(
-                        endpoint.display_name.clone(),
-                        id.0,
-                        group_node.kind,
-                    ));
-                }
-            }
-        }
+        let mut messages = self.diff_group_nodes(&endpoint_nodes);
         messages.extend(self.diff_properties(&endpoint_nodes));
         messages.extend(self.diff_links(graph, &endpoint_nodes));
         messages
@@ -667,6 +638,44 @@ impl SonusmixState {
         }
 
         endpoint_nodes
+    }
+
+    fn diff_group_nodes(&mut self, endpoint_nodes: &HashMap<EndpointDescriptor, Vec<&PwNode>>) -> Vec<ToPipewireMessage> {
+        // Check that all of the group nodes have a corresponding node. If there isn't one, create it.
+        let mut messages = Vec::new();
+        for id in self.group_nodes.keys().copied().collect::<Vec<_>>() {
+            let endpoint_desc = EndpointDescriptor::GroupNode(id);
+            if let Some(node) = endpoint_nodes.get(&endpoint_desc).and_then(|nodes| nodes.get(0)) {
+                let group_node = self
+                    .group_nodes
+                    .get_mut(&id)
+                    .expect("We know the group node must exist");
+                if group_node.pending {
+                    group_node.pending = false;
+                }
+                if group_node.pipewire_id != Some(node.id) {
+                    group_node.pipewire_id = Some(node.id)
+                }
+            } else {
+                let group_node = self
+                    .group_nodes
+                    .get_mut(&id)
+                    .expect("We know the group node must exist");
+                if !group_node.pending {
+                    group_node.pending = true;
+                    let endpoint = self
+                        .endpoints
+                        .get(&endpoint_desc)
+                        .expect("We know the endpoint must exist");
+                    messages.push(ToPipewireMessage::CreateGroupNode(
+                        endpoint.display_name.clone(),
+                        id.0,
+                        group_node.kind,
+                    ));
+                }
+            }
+        }
+        messages
     }
 
     /// Check if the properties on the backend nodes match the Sonusmix endpoints, and change one
@@ -1347,6 +1356,8 @@ impl GroupNodeId {
 pub struct GroupNode {
     pub id: GroupNodeId,
     pub kind: GroupNodeKind,
+    #[serde(skip)]
+    pub pipewire_id: Option<u32>,
     #[serde(skip)]
     pub pending: bool,
 }

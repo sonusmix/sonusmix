@@ -120,7 +120,10 @@ impl FactoryComponent for Group {
                         set_menu_model: Some(&group_menu)
                     },
                     gtk::Label {
-                        set_label: "id: 0000",
+                        #[watch]
+                        set_label: &self.group_node.pipewire_id
+                            .map(|id| format!("id: {id}"))
+                            .unwrap_or_default(),
                     }
                 }
             },
