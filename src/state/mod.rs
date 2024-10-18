@@ -191,11 +191,9 @@ impl SonusmixState {
 
                     // Handle cleanup specific to each endpoint type
                     match endpoint_desc {
-                        EndpointDescriptor::EphemeralNode(id, kind) => {
-                            let Some(node) = graph.nodes.get(&id) else {
-                                break 'handler None;
-                            };
-                            self.candidates.push((id, kind, node.identifier.clone()));
+                        EndpointDescriptor::EphemeralNode(_id, _kind) => {
+                            // Nothing else to do, diff() runs after update() which will handle
+                            // adding the node to candidates again if it still exists
                         }
                         EndpointDescriptor::GroupNode(id) => {
                             if self.group_nodes.remove(&id).is_none() {
@@ -470,18 +468,13 @@ impl SonusmixState {
                 }
                 SonusmixMsg::ChangeGroupNodeKind(id, kind) => {
                     let descriptor = EndpointDescriptor::GroupNode(id);
-                    if let (Some(endpoint), Some(group_node)) = (
-                        self.endpoints.get(&descriptor),
-                        self.group_nodes.get_mut(&id),
-                    ) {
+                    if let Some(group_node) = self.group_nodes.get_mut(&id) {
                         if kind != group_node.kind {
+                            // Remove the node, once it's gone the diffing algorithm will re-create
+                            // it with the changed kind
                             pipewire_messages.push(ToPipewireMessage::RemoveGroupNode(id.0));
-                            pipewire_messages.push(ToPipewireMessage::CreateGroupNode(
-                                endpoint.display_name.clone(),
-                                id.0,
-                                kind,
-                            ));
                             group_node.kind = kind;
+                            group_node.pending = false;
                         }
                     }
 
@@ -493,18 +486,15 @@ impl SonusmixState {
                 ) => {
                     if let (Some(endpoint), Some(group_node)) = (
                         self.endpoints.get_mut(&descriptor),
-                        self.group_nodes.get(&id),
+                        self.group_nodes.get_mut(&id),
                     ) {
                         if let Some(name) = name.filter(|name| *name != endpoint.display_name) {
                             // If the new name exists and is different from the existing name,
-                            // re-create the Pipewire node with a new name
+                            // remove the node. Once it's gone the diffing algorithm will re-create
+                            // it with the changed name
                             pipewire_messages.push(ToPipewireMessage::RemoveGroupNode(id.0));
-                            pipewire_messages.push(ToPipewireMessage::CreateGroupNode(
-                                name.clone(),
-                                id.0,
-                                group_node.kind,
-                            ));
                             endpoint.display_name = name;
+                            group_node.pending = false;
                         }
                     }
 

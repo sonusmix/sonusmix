@@ -10,6 +10,8 @@ use pipewire::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::state::GroupNodeKind;
+
 use super::{identifier::NodeIdentifier, pod::DeviceActiveRoute};
 
 #[derive(Error, Debug)]
@@ -118,6 +120,7 @@ impl<'a> ObjectConvertErrorExt for GlobalObject<&'a DictRef> {
 pub struct GroupNode<P = pipewire::node::Node, L = pipewire::proxy::ProxyListener> {
     pub id: Option<u32>,
     pub name: String,
+    pub kind: GroupNodeKind,
     pub(super) proxy: P,
     #[derivative(Debug = "ignore")]
     #[allow(unused)]
@@ -130,6 +133,7 @@ impl GroupNode {
         GroupNode {
             id: self.id,
             name: self.name.clone(),
+            kind: self.kind,
             proxy: (),
             listener: (),
         }

@@ -15,6 +15,7 @@ use crate::state::{
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
+use super::debug_view::{DebugView, DebugViewMsg};
 use super::endpoint_list::EndpointList;
 use super::group::Group;
 
@@ -26,6 +27,7 @@ pub struct App {
     sinks: Controller<EndpointList>,
     groups: FactoryVecDeque<Group>,
     choose_endpoint_dialog: Controller<ChooseEndpointDialog>,
+    debug_view: Controller<DebugView>,
 }
 
 #[derive(Debug)]
@@ -48,6 +50,7 @@ relm4::new_stateless_action!(
     MainMenuActionGroup,
     "third-party-licenses"
 );
+relm4::new_stateless_action!(ShowDebugViewAction, MainMenuActionGroup, "show-debug-view");
 
 #[relm4::component(pub)]
 impl Component for App {
@@ -154,6 +157,7 @@ impl Component for App {
         main_menu: {
             "About" => AboutAction,
             "View Third-Party Licenses" => ThirdPartyLicensesAction,
+            "Show Debug View" => ShowDebugViewAction,
         }
     }
 
@@ -175,6 +179,7 @@ impl Component for App {
             .forward(choose_endpoint_dialog.sender(), |_| {
                 ChooseEndpointDialogMsg::Show(PortKind::Sink)
             });
+        let debug_view = DebugView::builder().launch(()).detach();
 
         let mut groups = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -194,6 +199,7 @@ impl Component for App {
             sinks,
             groups,
             choose_endpoint_dialog,
+            debug_view,
         };
 
         let groups_list = model.groups.widget();
@@ -216,6 +222,13 @@ impl Component for App {
                 }
             });
         group.add_action(third_party_licenses_action);
+        let show_debug_view_action: RelmAction<ShowDebugViewAction> = RelmAction::new_stateless({
+            let sender = model.debug_view.sender().clone();
+            move |_| {
+                sender.send(DebugViewMsg::SetVisible(true));
+            }
+        });
+        group.add_action(show_debug_view_action);
         group.register_for_widget(&widgets.main_window);
 
         ComponentParts { model, widgets }

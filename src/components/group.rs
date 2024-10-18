@@ -120,7 +120,7 @@ impl FactoryComponent for Group {
                         set_menu_model: Some(&group_menu)
                     },
                     gtk::Label {
-                        set_label: "id: 1234",
+                        set_label: "id: 0000",
                     }
                 }
             },
