@@ -43,6 +43,7 @@ pub struct SonusmixState {
     pub active_sources: Vec<EndpointDescriptor>,
     pub active_sinks: Vec<EndpointDescriptor>,
     pub endpoints: HashMap<EndpointDescriptor, Endpoint>,
+    #[serde(skip)]
     pub candidates: Vec<(u32, PortKind, NodeIdentifier)>,
     pub links: Vec<Link>,
     /// Stores data for matching Pipewire nodes to persistent nodes. Entries are added to this map
@@ -1074,6 +1075,7 @@ pub struct Endpoint {
     /// as it could cause unexpected behavior otherwise.
     pub volume_mixed: bool,
     pub volume_locked_muted: VolumeLockMuteState,
+    #[serde(skip)]
     pub volume_pending: bool,
 }
 
@@ -1152,6 +1154,7 @@ pub struct Link {
     pub start: EndpointDescriptor,
     pub end: EndpointDescriptor,
     pub state: LinkState,
+    #[serde(skip)]
     pending: bool,
 }
 
@@ -1344,6 +1347,7 @@ impl GroupNodeId {
 pub struct GroupNode {
     pub id: GroupNodeId,
     pub kind: GroupNodeKind,
+    #[serde(skip)]
     pub pending: bool,
 }
 
@@ -1368,6 +1372,7 @@ impl ApplicationId {
 pub struct Application {
     pub id: ApplicationId,
     pub kind: PortKind,
+    #[serde(skip)] // Inactive applications should not be serialized
     pub is_active: bool,
     pub name: String,
     pub binary: String,

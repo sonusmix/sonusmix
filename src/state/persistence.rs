@@ -28,7 +28,12 @@ pub(super) struct PersistentState {
 }
 
 impl PersistentState {
-    pub fn from_state(state: SonusmixState) -> Self {
+    pub fn from_state(mut state: SonusmixState) -> Self {
+        // Remove links that aren't locked
+        state.links.retain(|link| link.state.is_locked());
+        // Remove applications that aren't active
+        state.applications.retain(|_, application| application.is_active);
+
         Self {
             version: APP_VERSION.to_string(),
             state,
