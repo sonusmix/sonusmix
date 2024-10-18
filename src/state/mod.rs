@@ -198,7 +198,7 @@ impl SonusmixState {
                             // adding the node to candidates again if it still exists
                         }
                         EndpointDescriptor::GroupNode(id) => {
-                            if self.group_nodes.remove(&id).is_none() {
+                            if self.group_nodes.shift_remove(&id).is_none() {
                                 warn!("Group node {id:?} did not exist in the state");
                             };
                             pipewire_messages.push(ToPipewireMessage::RemoveGroupNode(id.0));
@@ -469,7 +469,6 @@ impl SonusmixState {
                     None
                 }
                 SonusmixMsg::ChangeGroupNodeKind(id, kind) => {
-                    let descriptor = EndpointDescriptor::GroupNode(id);
                     if let Some(group_node) = self.group_nodes.get_mut(&id) {
                         if kind != group_node.kind {
                             // Remove the node, once it's gone the diffing algorithm will re-create
@@ -640,12 +639,18 @@ impl SonusmixState {
         endpoint_nodes
     }
 
-    fn diff_group_nodes(&mut self, endpoint_nodes: &HashMap<EndpointDescriptor, Vec<&PwNode>>) -> Vec<ToPipewireMessage> {
+    fn diff_group_nodes(
+        &mut self,
+        endpoint_nodes: &HashMap<EndpointDescriptor, Vec<&PwNode>>,
+    ) -> Vec<ToPipewireMessage> {
         // Check that all of the group nodes have a corresponding node. If there isn't one, create it.
         let mut messages = Vec::new();
         for id in self.group_nodes.keys().copied().collect::<Vec<_>>() {
             let endpoint_desc = EndpointDescriptor::GroupNode(id);
-            if let Some(node) = endpoint_nodes.get(&endpoint_desc).and_then(|nodes| nodes.get(0)) {
+            if let Some(node) = endpoint_nodes
+                .get(&endpoint_desc)
+                .and_then(|nodes| nodes.first())
+            {
                 let group_node = self
                     .group_nodes
                     .get_mut(&id)
@@ -1543,15 +1548,15 @@ mod tests {
         let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
         let sonusmix_node_endpoint = Endpoint::new_test(sonusmix_node);
         let sonusmix_state = SonusmixState {
-            group_nodes: HashMap::new(),
             active_sources: Vec::from([sonusmix_node]),
             active_sinks: Vec::new(),
             endpoints: HashMap::from([(sonusmix_node, sonusmix_node_endpoint); 1]),
             candidates: Vec::new(),
             links: Vec::new(),
-            persistent_nodes: IndexMap::new(),
+            persistent_nodes: HashMap::new(),
             applications: HashMap::new(),
             devices: HashMap::new(),
+            group_nodes: IndexMap::new(),
         };
 
         (pipewire_state, sonusmix_state)

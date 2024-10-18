@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::{debug, error};
+use log::error;
 use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
@@ -225,7 +225,7 @@ impl Component for App {
         let show_debug_view_action: RelmAction<ShowDebugViewAction> = RelmAction::new_stateless({
             let sender = model.debug_view.sender().clone();
             move |_| {
-                sender.send(DebugViewMsg::SetVisible(true));
+                let _ = sender.send(DebugViewMsg::SetVisible(true));
             }
         });
         group.add_action(show_debug_view_action);

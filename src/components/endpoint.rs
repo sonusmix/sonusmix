@@ -15,7 +15,6 @@ use super::connect_endpoints::ConnectEndpoints;
 
 pub struct Endpoint {
     endpoint: PwEndpoint,
-    list: PortKind,
     renaming: bool,
     custom_name_buffer: gtk::EntryBuffer,
     connect_endpoints: Controller<ConnectEndpoints>,
@@ -278,7 +277,6 @@ impl FactoryComponent for Endpoint {
 
         Self {
             endpoint,
-            list,
             renaming: false,
             custom_name_buffer,
             connect_endpoints,

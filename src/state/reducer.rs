@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use log::{debug, error};
+use log::error;
 use relm4::SharedState;
 
 use crate::{
