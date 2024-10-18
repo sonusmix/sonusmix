@@ -106,7 +106,7 @@ impl Master {
                 let store = self.store.clone();
                 let sender = self.sender.clone();
                 move |global| {
-                    println!("Global removed: {:?}", global);
+                    // debug!("Global removed: {:?}", global);
                     let mut store_borrow = store.borrow_mut();
                     store_borrow.remove_object(global);
                     let _ = sender.send(ToPipewireMessage::Update);
@@ -118,7 +118,6 @@ impl Master {
     /// Create a link between two ports. Checks that the ports exist, and their direction. Does
     /// nothing if a link between those two ports already exists.
     fn create_port_link(&self, start_id: u32, end_id: u32) -> Result<()> {
-        debug!("create node links {start_id} {end_id}");
         let store = self.store.borrow();
         let Some(start_port) = store.ports.get(&start_id) else {
             return Err(anyhow!(
@@ -163,7 +162,6 @@ impl Master {
     /// Create links between all matching ports of two nodes. Checks that both ids are nodes, and
     /// skips links that do not already exist. Only connects nodes in the specified direction.
     fn create_node_links(&self, start_id: u32, end_id: u32) -> Result<()> {
-        debug!("create node links {start_id} {end_id}");
         let store = self.store.borrow();
         let Some(start_node) = store.nodes.get(&start_id) else {
             return Err(anyhow!(
@@ -191,7 +189,11 @@ impl Master {
                 Some((start_port, *end_port))
             })
             .collect();
-        debug!("port pairs {:?}", port_pairs);
+        if port_pairs.is_empty() {
+            return Err(anyhow!(
+                "No port pairs to connect between nodes {start_id} and {end_id}"
+            ));
+        }
         for (start_port, end_port) in port_pairs {
             self.create_port_link(start_port.id, end_port.id)?;
         }
@@ -408,12 +410,7 @@ pub(super) fn init_mainloop(
         let _receiver = receiver.attach(mainloop.loop_(), {
             let mainloop = mainloop.clone();
             let store = store.clone();
-            move |message| {
-                {
-                    debug!("pipewire message, {:?}, {:?}", message, store.borrow().group_nodes);
-                }
-
-                match message {
+            move |message| match message {
                 ToPipewireMessage::Update => update_fn(store.borrow().dump_graph()),
                 ToPipewireMessage::NodeVolume(id, volume) => {
                     if let Err(err) = store.borrow_mut().set_node_volume(id, volume) {
@@ -456,7 +453,7 @@ pub(super) fn init_mainloop(
                     }
                 }
                 ToPipewireMessage::Exit => mainloop.quit(),
-            }}
+            }
         });
 
         println!("mainloop initialization done");

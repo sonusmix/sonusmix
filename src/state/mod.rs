@@ -937,6 +937,7 @@ impl SonusmixState {
                 .get(&id.0)
                 .and_then(|group_node| group_node.id)
                 .and_then(|id| graph.nodes.get(&id))
+                .filter(|node| !node.ports.is_empty())
                 .map(|node| vec![node]),
             EndpointDescriptor::Application(id, kind) => {
                 let application = self.applications.get(&id)?;

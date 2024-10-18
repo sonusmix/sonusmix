@@ -1,12 +1,13 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc, OnceLock, RwLock,
+        mpsc, Arc, Mutex, OnceLock, RwLock,
     },
     thread::JoinHandle,
+    time::Duration,
 };
 
-use log::error;
+use log::{debug, error};
 use relm4::SharedState;
 
 use crate::{
@@ -18,6 +19,7 @@ use super::{SonusmixMsg, SonusmixOutputMsg, SonusmixState};
 
 static SONUSMIX_REDUCER: RwLock<OnceLock<SonusmixReducer>> = RwLock::new(OnceLock::new());
 
+#[derive(Debug, Clone)]
 enum ReducerMsg {
     Update(SonusmixMsg),
     GraphUpdate(Graph),
@@ -135,14 +137,29 @@ impl SonusmixReducer {
         // Start the autosave task
         relm4::spawn(autosave_task());
 
-        // Return a function that sends a `GraphUpdate` message when called
-        |graph| {
-            if let Some(reducer) = SONUSMIX_REDUCER
-                .read()
-                .expect("panic if reducer lock is poisoned")
-                .get()
-            {
-                let _ = reducer.reducer_sender.send(ReducerMsg::GraphUpdate(graph));
+        // Return a function that, after a short delay, sends a `GraphUpdate` message. The message
+        // will contain the most recent of the graphs given by calls of this function during the
+        // delay.
+        |new_graph| {
+            static GRAPH: Mutex<Option<Graph>> = Mutex::new(None);
+
+            let mut graph = GRAPH.lock().expect("graph lock poisoned");
+            if let Some(graph) = graph.as_mut() {
+                *graph = new_graph;
+            } else {
+                *graph = Some(new_graph);
+                relm4::spawn(async {
+                    tokio::time::sleep(Duration::from_secs_f64(1.0 / 60.0)).await;
+                    if let Some(graph) = GRAPH.lock().expect("graph lock poisoned").take() {
+                        if let Some(reducer) = SONUSMIX_REDUCER
+                            .read()
+                            .expect("panic if reducer lock is poisoned")
+                            .get()
+                        {
+                            let _ = reducer.reducer_sender.send(ReducerMsg::GraphUpdate(graph));
+                        }
+                    }
+                });
             }
         }
     }
