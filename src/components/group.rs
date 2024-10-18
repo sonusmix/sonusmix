@@ -2,16 +2,17 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use gtk::glib::Propagation;
-use log::debug;
 use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::prelude::*;
 use relm4::{factory::FactoryView, gtk::prelude::*};
 
+use crate::pipewire_api::PortKind;
 use crate::state::{
     Endpoint as PwEndpoint, EndpointDescriptor, GroupNode, GroupNodeId, GroupNodeKind, SonusmixMsg,
     SonusmixReducer, SonusmixState,
 };
 
+use super::connect_endpoints::ConnectEndpoints;
 use super::endpoint::{slider_to_volume, volume_to_slider};
 
 pub struct Group {
@@ -19,6 +20,8 @@ pub struct Group {
     pub group_node: GroupNode,
     renaming: bool,
     name_buffer: gtk::EntryBuffer,
+    connect_sources: Controller<ConnectEndpoints>,
+    connect_sinks: Controller<ConnectEndpoints>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,18 +154,12 @@ impl FactoryComponent for Group {
                         set_spacing: 4,
 
                         gtk::MenuButton {
-                            #[wrap(Some)]
-                            set_child = &gtk::Label {
-                                set_justify: gtk::Justification::Center,
-                                set_label: "Connect\nSources",
-                            }
+                            set_label: "Connect Sources",
+                            set_popover: Some(self.connect_sources.widget()),
                         },
                         gtk::MenuButton {
-                            #[wrap(Some)]
-                            set_child = &gtk::Label {
-                                set_justify: gtk::Justification::Center,
-                                set_label: "Connect\nSinks",
-                            }
+                            set_label: "Connect Sinks",
+                            set_popover: Some(self.connect_sinks.widget()),
                         },
                     },
                     #[wrap(Some)]
@@ -268,6 +265,13 @@ impl FactoryComponent for Group {
             .expect("group componend failed to find matching group node on init")
             .clone();
 
+        let connect_sources = ConnectEndpoints::builder()
+            .launch((endpoint.descriptor, PortKind::Sink))
+            .forward(sender.input_sender(), |msg| match msg {});
+        let connect_sinks = ConnectEndpoints::builder()
+            .launch((endpoint.descriptor, PortKind::Source))
+            .forward(sender.input_sender(), |msg| match msg {});
+
         let name_buffer = gtk::EntryBuffer::new(None::<&str>);
 
         Self {
@@ -275,6 +279,8 @@ impl FactoryComponent for Group {
             group_node,
             renaming: false,
             name_buffer,
+            connect_sources,
+            connect_sinks,
         }
     }
 

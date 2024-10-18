@@ -105,7 +105,7 @@ impl SimpleComponent for EndpointList {
                 PortKind::Sink => &sonusmix_state.active_sinks,
             };
             for endpoint in active_endpoints {
-                endpoints.push_back(*endpoint);
+                endpoints.push_back((*endpoint, list));
             }
         }
 
@@ -123,7 +123,7 @@ impl SimpleComponent for EndpointList {
                 Some(SonusmixOutputMsg::EndpointAdded(descriptor))
                     if descriptor.is_list(self.list) =>
                 {
-                    self.endpoints.guard().push_back(descriptor);
+                    self.endpoints.guard().push_back((descriptor, self.list));
                 }
                 Some(SonusmixOutputMsg::EndpointRemoved(descriptor)) => {
                     if descriptor.is_list(self.list) {

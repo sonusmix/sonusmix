@@ -1,7 +1,9 @@
 use relm4::prelude::*;
 use relm4::{factory::FactoryVecDeque, gtk::prelude::*};
 
+use std::cell::Cell;
 use std::convert::Infallible;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::pipewire_api::PortKind;
@@ -12,7 +14,9 @@ use crate::state::{
 pub struct ConnectEndpoints {
     sonusmix_state: Arc<SonusmixState>,
     base_endpoint: Endpoint,
+    base_kind: PortKind,
     items: FactoryVecDeque<ConnectEndpointItem>,
+    header_indices: Rc<Cell<[Option<i32>; 3]>>,
 }
 
 #[derive(Debug)]
@@ -23,11 +27,12 @@ pub enum ConnectEndpointsMsg {
 
 #[relm4::component(pub)]
 impl SimpleComponent for ConnectEndpoints {
-    type Init = EndpointDescriptor;
+    type Init = (EndpointDescriptor, PortKind);
     type Input = ConnectEndpointsMsg;
     type Output = Infallible;
 
     view! {
+        #[root]
         gtk::Popover {
             set_autohide: true,
 
@@ -44,13 +49,76 @@ impl SimpleComponent for ConnectEndpoints {
                 *item_box -> gtk::ListBox {
                     set_selection_mode: gtk::SelectionMode::None,
                     set_show_separators: true,
+
+                    set_header_func[
+                        header_indices = model.header_indices.clone(),
+                        sources_label,
+                        sinks_label,
+                        groups_label,
+                    ] => move |row, _| {
+                        let header_indices = header_indices.get();
+                        if Some(row.index()) == header_indices[0] {
+                            row.set_header(Some(&sources_label));
+                        } else if Some(row.index()) == header_indices[1] {
+                            row.set_header(Some(&sinks_label));
+                        } else if Some(row.index()) == header_indices[2] {
+                            row.set_header(Some(&groups_label));
+                        } else {
+                            row.set_header(None::<&gtk::Widget>);
+                        }
+                    }
                 }
             }
-        }
+        },
+        #[name(sources_label)]
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+
+            gtk::Label {
+                set_margin_top: 4,
+                set_margin_start: 4,
+
+                set_align: gtk::Align::Start,
+                set_label: "Sources",
+            },
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            }
+        },
+        #[name(sinks_label)]
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+
+            gtk::Label {
+                set_margin_top: 4,
+                set_margin_start: 4,
+
+                set_align: gtk::Align::Start,
+                set_label: "Sinks",
+            },
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            }
+        },
+        #[name(groups_label)]
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+
+            gtk::Label {
+                set_margin_top: 4,
+                set_margin_start: 4,
+
+                set_align: gtk::Align::Start,
+                set_label: "Groups",
+            },
+            gtk::Separator {
+                set_orientation: gtk::Orientation::Horizontal,
+            }
+        },
     }
 
     fn init(
-        endpoint_desc: EndpointDescriptor,
+        (endpoint_desc, base_kind): (EndpointDescriptor, PortKind),
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
@@ -73,7 +141,9 @@ impl SimpleComponent for ConnectEndpoints {
         let mut model = Self {
             sonusmix_state,
             base_endpoint,
+            base_kind,
             items,
+            header_indices: Rc::new(Cell::new([None; 3])),
         };
         model.update_items();
 
@@ -132,17 +202,61 @@ impl SimpleComponent for ConnectEndpoints {
 
 impl ConnectEndpoints {
     fn update_items(&mut self) {
-        // TODO: Handle groups
-        let candidates = if self.base_endpoint.descriptor.is_kind(PortKind::Source) {
-            &self.sonusmix_state.active_sinks
-        } else {
-            &self.sonusmix_state.active_sources
-        };
         let mut factory = self.items.guard();
         factory.clear();
-        for candidate in candidates
-            .iter()
-            .filter_map(|id| self.sonusmix_state.endpoints.get(id))
+        let mut header_indices = [None; 3];
+
+        if self.base_kind == PortKind::Sink {
+            if !self.sonusmix_state.active_sources.is_empty() {
+                header_indices[0] = Some(0);
+            }
+            for candidate in self
+                .sonusmix_state
+                .active_sources
+                .iter()
+                .filter_map(|id| self.sonusmix_state.endpoints.get(id))
+                .cloned()
+            {
+                factory.push_back((
+                    self.base_endpoint.descriptor,
+                    candidate,
+                    self.sonusmix_state.clone(),
+                ));
+            }
+        }
+
+        if self.base_kind == PortKind::Source {
+            if !self.sonusmix_state.active_sinks.is_empty() {
+                header_indices[1] = Some(factory.len() as i32);
+            }
+            for candidate in self
+                .sonusmix_state
+                .active_sinks
+                .iter()
+                .filter_map(|id| self.sonusmix_state.endpoints.get(id))
+                .cloned()
+            {
+                factory.push_back((
+                    self.base_endpoint.descriptor,
+                    candidate,
+                    self.sonusmix_state.clone(),
+                ));
+            }
+        }
+
+        if !self.sonusmix_state.group_nodes.is_empty() {
+            header_indices[2] = Some(factory.len() as i32);
+        }
+        for candidate in self
+            .sonusmix_state
+            .group_nodes
+            .keys()
+            .filter_map(|id| {
+                let descriptor = EndpointDescriptor::GroupNode(*id);
+                (descriptor != self.base_endpoint.descriptor)
+                    .then(|| self.sonusmix_state.endpoints.get(&descriptor))
+                    .flatten()
+            })
             .cloned()
         {
             factory.push_back((
@@ -151,6 +265,7 @@ impl ConnectEndpoints {
                 self.sonusmix_state.clone(),
             ));
         }
+        self.header_indices.set(header_indices);
     }
 }
 

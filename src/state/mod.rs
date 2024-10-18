@@ -2,7 +2,7 @@ mod persistence;
 mod reducer;
 
 use indexmap::IndexMap;
-use log::{debug, error, warn};
+use log::{error, warn};
 pub use reducer::SonusmixReducer;
 
 use std::collections::{HashMap, HashSet};

@@ -6,6 +6,7 @@ use relm4::factory::FactoryView;
 use relm4::prelude::*;
 use relm4::{actions::RelmActionGroup, gtk::prelude::*};
 
+use crate::pipewire_api::PortKind;
 use crate::state::{
     Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState,
 };
@@ -14,9 +15,10 @@ use super::connect_endpoints::ConnectEndpoints;
 
 pub struct Endpoint {
     endpoint: PwEndpoint,
+    list: PortKind,
     renaming: bool,
-    connect_endpoints: Controller<ConnectEndpoints>,
     custom_name_buffer: gtk::EntryBuffer,
+    connect_endpoints: Controller<ConnectEndpoints>,
     details_short: String,
     details_long: String,
 }
@@ -50,7 +52,7 @@ relm4::new_stateless_action!(ResetNameAction, EndpointMenuActionGroup, "reset-na
 
 #[relm4::factory(pub)]
 impl FactoryComponent for Endpoint {
-    type Init = EndpointDescriptor;
+    type Init = (EndpointDescriptor, PortKind);
     type Input = EndpointMsg;
     type Output = EndpointOutput;
     type CommandOutput = ();
@@ -256,7 +258,7 @@ impl FactoryComponent for Endpoint {
     }
 
     fn init_model(
-        endpoint_desc: EndpointDescriptor,
+        (endpoint_desc, list): (EndpointDescriptor, PortKind),
         _index: &DynamicIndex,
         sender: FactorySender<Self>,
     ) -> Self {
@@ -269,16 +271,17 @@ impl FactoryComponent for Endpoint {
         let details_long = endpoint.details_long();
 
         let connect_endpoints = ConnectEndpoints::builder()
-            .launch(endpoint.descriptor)
+            .launch((endpoint.descriptor, list))
             .forward(sender.input_sender(), |msg| match msg {});
 
         let custom_name_buffer = gtk::EntryBuffer::new(None::<&str>);
 
         Self {
             endpoint,
+            list,
             renaming: false,
-            connect_endpoints,
             custom_name_buffer,
+            connect_endpoints,
             details_short,
             details_long,
         }
