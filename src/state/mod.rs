@@ -1,9 +1,10 @@
 mod persistence;
 mod reducer;
+pub mod settings;
 
 use indexmap::IndexMap;
 use log::{error, warn};
-pub use reducer::SonusmixReducer;
+pub use reducer::{SonusmixReducer, SONUSMIX_SETTINGS};
 
 use std::collections::{HashMap, HashSet};
 

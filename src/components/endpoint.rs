@@ -168,8 +168,9 @@ impl FactoryComponent for Endpoint {
                     }
                 },
                 gtk::Scale {
-                    set_range: (0.0, 100.0),
+                    set_range: (0.0, 125.0),
                     set_increments: (1.0, 5.0),
+                    add_mark: (100.0, gtk::PositionType::Bottom, None),
                     set_draw_value: true,
                     set_format_value_func => move |_, value| format!("{value:.0}%"),
 

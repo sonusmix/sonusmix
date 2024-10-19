@@ -1,2 +1,3 @@
 # THIS FILE IS IN VERSION CONTROL! DO NOT PUT ANY SECRETS IN HERE!
 SONUSMIX_DATA_DIR=target/dev-persistence-data
+SONUSMIX_CONFIG_DIR=target/dev-persistence-data

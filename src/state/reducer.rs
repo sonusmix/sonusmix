@@ -12,12 +12,13 @@ use relm4::SharedState;
 
 use crate::{
     pipewire_api::{Graph, ToPipewireMessage},
-    state::persistence::{autosave_task, PersistentState},
+    state::persistence::{autosave_task, PersistentSettings, PersistentState},
 };
 
-use super::{SonusmixMsg, SonusmixOutputMsg, SonusmixState};
+use super::{settings::SonusmixSettings, SonusmixMsg, SonusmixOutputMsg, SonusmixState};
 
 static SONUSMIX_REDUCER: RwLock<OnceLock<SonusmixReducer>> = RwLock::new(OnceLock::new());
+pub static SONUSMIX_SETTINGS: SharedState<SonusmixSettings> = SharedState::new();
 
 #[derive(Debug, Clone)]
 enum ReducerMsg {
@@ -106,6 +107,11 @@ impl SonusmixReducer {
                             if let Err(err) = persistent_state.save() {
                                 error!("Error saving state: {err:#}");
                             }
+                            let settings = { SONUSMIX_SETTINGS.read().clone() };
+                            let persistent_settings = PersistentSettings::from_settings(settings);
+                            if let Err(err) = persistent_settings.save() {
+                                error!("Error saving settings: {err:#}");
+                            }
                             break;
                         }
                     }
@@ -121,6 +127,16 @@ impl SonusmixReducer {
             }
             Err(err) => {
                 error!("Failed to load persistent state: {err:#}");
+            }
+        }
+        {
+            match PersistentSettings::load() {
+                Ok(persistent_settings) => {
+                    *SONUSMIX_SETTINGS.write() = persistent_settings.into_settings();
+                }
+                Err(err) => {
+                    error!("Failed to load settings: {err:#}");
+                }
             }
         }
 

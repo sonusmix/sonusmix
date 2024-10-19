@@ -18,9 +18,11 @@ use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMs
 use super::debug_view::{DebugView, DebugViewMsg};
 use super::endpoint_list::EndpointList;
 use super::group::Group;
+use super::settings_page::SettingsPage;
 
 pub struct App {
     sonusmix_state: Arc<SonusmixState>,
+    page: Page,
     about_component: Option<Controller<AboutComponent>>,
     third_party_licenses_file: Option<TempPath>,
     sources: Controller<EndpointList>,
@@ -28,6 +30,7 @@ pub struct App {
     groups: FactoryVecDeque<Group>,
     choose_endpoint_dialog: Controller<ChooseEndpointDialog>,
     debug_view: Controller<DebugView>,
+    settings_page: Controller<SettingsPage>,
 }
 
 #[derive(Debug)]
@@ -36,11 +39,18 @@ pub enum Msg {
     AddGroupNode,
     OpenAbout,
     OpenThirdPartyLicenses,
+    ChangePage(Page),
 }
 
 #[derive(Debug)]
 pub enum CommandMsg {
     OpenThirdPartyLicenses(std::io::Result<TempPath>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    Main,
+    Settings,
 }
 
 relm4::new_action_group!(MainMenuActionGroup, "main-menu");
@@ -61,94 +71,113 @@ impl Component for App {
 
     view! {
         main_window = gtk::ApplicationWindow {
-            set_title: Some("Sonusmix"),
+            #[watch]
+            set_title: Some(match model.page {
+                Page::Main => "Sonusmix",
+                Page::Settings => "Settings",
+            }),
             set_default_size: (1100, 800),
 
             #[wrap(Some)]
             set_titlebar = &gtk::HeaderBar {
+                pack_start = &gtk::Button {
+                    #[watch]
+                    set_visible: model.page != Page::Main,
+                    set_icon_name: "go-previous-symbolic",
+                    connect_clicked => Msg::ChangePage(Page::Main),
+                },
                 pack_end = &gtk::MenuButton {
                     set_icon_name: "view-more-symbolic",
                     set_menu_model: Some(&main_menu),
                 },
+                pack_end = &gtk::Button {
+                    #[watch]
+                    set_visible: model.page != Page::Settings,
+                    set_icon_name: "preferences-system-symbolic",
+                    connect_clicked => Msg::ChangePage(Page::Settings),
+                },
             },
 
-            gtk::Paned {
-                set_orientation: gtk::Orientation::Vertical,
-                set_margin_all: 8,
-                set_wide_handle: true,
-                set_shrink_start_child: false,
-                set_shrink_end_child: false,
-
-                #[wrap(Some)]
-                set_start_child = &gtk::Paned {
-                    set_orientation: gtk::Orientation::Horizontal,
+            match model.page {
+                Page::Main => gtk::Paned {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_margin_all: 8,
                     set_wide_handle: true,
                     set_shrink_start_child: false,
                     set_shrink_end_child: false,
 
                     #[wrap(Some)]
-                    set_start_child = &gtk::Box {
-                        set_margin_end: 4,
+                    set_start_child = &gtk::Paned {
+                        set_orientation: gtk::Orientation::Horizontal,
+                        set_wide_handle: true,
+                        set_shrink_start_child: false,
+                        set_shrink_end_child: false,
 
-                        append: model.sources.widget(),
-                    },
-                    #[wrap(Some)]
-                    set_end_child = &gtk::Box {
-                        set_margin_start: 4,
+                        #[wrap(Some)]
+                        set_start_child = &gtk::Box {
+                            set_margin_end: 4,
 
-                        append: model.sinks.widget(),
-                    },
-                },
-
-                #[wrap(Some)]
-                set_end_child = &gtk::Frame {
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_hexpand: true,
-
-                        gtk::CenterBox {
-                            set_orientation: gtk::Orientation::Horizontal,
-                            set_margin_top: 4,
+                            append: model.sources.widget(),
+                        },
+                        #[wrap(Some)]
+                        set_end_child = &gtk::Box {
                             set_margin_start: 4,
 
-                            #[wrap(Some)]
-                            set_start_widget = &gtk::Button {
-                                set_icon_name: "list-add-symbolic",
-                                set_has_frame: true,
-
-                                connect_clicked => Msg::AddGroupNode,
-                            },
-                            #[wrap(Some)]
-                            set_center_widget = &gtk::Label {
-                                set_markup: "<big>Groups/Virtual Devices</big>",
-                            },
+                            append: model.sinks.widget(),
                         },
-                        gtk::Separator {
+                    },
+
+                    #[wrap(Some)]
+                    set_end_child = &gtk::Frame {
+                        gtk::Box {
                             set_orientation: gtk::Orientation::Vertical,
-                            set_margin_vertical: 4,
-                        },
-                        if model.groups.is_empty() {
-                            gtk::Label {
-                                set_vexpand: true,
-                                set_valign: gtk::Align::Center,
-                                set_halign: gtk::Align::Center,
-                                set_label: "Add some groups to control them here.",
-                            }
-                        } else {
-                            gtk::ScrolledWindow {
-                                set_hexpand: true,
-                                set_policy: (gtk::PolicyType::Automatic, gtk::PolicyType::Never),
+                            set_hexpand: true,
 
-                                #[local_ref]
-                                groups_list -> gtk::Box {
-                                    set_orientation: gtk::Orientation::Horizontal,
-                                    set_margin_all: 4,
-                                    set_spacing: 8,
+                            gtk::CenterBox {
+                                set_orientation: gtk::Orientation::Horizontal,
+                                set_margin_top: 4,
+                                set_margin_start: 4,
+
+                                #[wrap(Some)]
+                                set_start_widget = &gtk::Button {
+                                    set_icon_name: "list-add-symbolic",
+                                    set_has_frame: true,
+
+                                    connect_clicked => Msg::AddGroupNode,
+                                },
+                                #[wrap(Some)]
+                                set_center_widget = &gtk::Label {
+                                    set_markup: "<big>Groups/Virtual Devices</big>",
+                                },
+                            },
+                            gtk::Separator {
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_margin_vertical: 4,
+                            },
+                            if model.groups.is_empty() {
+                                gtk::Label {
+                                    set_vexpand: true,
+                                    set_valign: gtk::Align::Center,
+                                    set_halign: gtk::Align::Center,
+                                    set_label: "Add some groups to control them here.",
+                                }
+                            } else {
+                                gtk::ScrolledWindow {
+                                    set_hexpand: true,
+                                    set_policy: (gtk::PolicyType::Automatic, gtk::PolicyType::Never),
+
+                                    #[local_ref]
+                                    groups_list -> gtk::Box {
+                                        set_orientation: gtk::Orientation::Horizontal,
+                                        set_margin_all: 4,
+                                        set_spacing: 8,
+                                    }
                                 }
                             }
                         }
                     }
-                }
+                },
+                Page::Settings => model.settings_page.widget().clone(),
             }
         }
     }
@@ -180,6 +209,7 @@ impl Component for App {
                 ChooseEndpointDialogMsg::Show(PortKind::Sink)
             });
         let debug_view = DebugView::builder().launch(()).detach();
+        let settings_page = SettingsPage::builder().launch(()).detach();
 
         let mut groups = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
@@ -193,6 +223,7 @@ impl Component for App {
 
         let model = App {
             sonusmix_state,
+            page: Page::Main,
             about_component: None,
             third_party_licenses_file: None,
             sources,
@@ -200,6 +231,7 @@ impl Component for App {
             groups,
             choose_endpoint_dialog,
             debug_view,
+            settings_page,
         };
 
         let groups_list = model.groups.widget();
@@ -290,6 +322,9 @@ impl Component for App {
                 sender.spawn_oneshot_command(move || {
                     CommandMsg::OpenThirdPartyLicenses(open_third_party_licenses(temp_path))
                 });
+            }
+            Msg::ChangePage(page) => {
+                self.page = page;
             }
         };
     }
