@@ -8,7 +8,21 @@ PIPEWIRE_LIB_PATH="$(/lib64/ld-linux-x86-64.so.2 --list $(command -v pipewire) |
     grep libpipewire |\
     sed 's/.*=> \(.*\)\/libpipewire.*/\1/')"
 
+PIXBUF_LOADER_DIR="$(eval "echo $BASE_PATH/usr/lib/gdk-pixbuf*/*/loaders")"
+
+# Call gdk-pixbuf-query-loaders to generate the loaders file (unfortunately, this is not relocatable)
+PIXBUF_TEMP_DIR="$(mktemp -d)"
+GDK_PIXBUF_MODULEDIR="$PIXBUF_LOADER_DIR"\
+    "$BASE_PATH/usr/lib/ld-linux-x86-64.so.2"\
+    --library-path "$BASE_PATH/usr/lib"\
+    "$BASE_PATH/usr/bin/gdk-pixbuf-query-loaders"\
+    > "$PIXBUF_TEMP_DIR/loaders.cache"
+
 # Call sonusmix using the packaged ld-linux and the packaged libraries
-"$BASE_PATH/usr/lib/ld-linux-x86-64.so.2"\
+GDK_PIXBUF_MODULE_FILE="$PIXBUF_TEMP_DIR/loaders.cache"\
+    "$BASE_PATH/usr/lib/ld-linux-x86-64.so.2"\
     --library-path "$BASE_PATH/usr/lib:$PIPEWIRE_LIB_PATH"\
     "$BASE_PATH/usr/bin/sonusmix"
+
+# Clean up pixbuf loader cache temp dir
+rm -rf "$PIXBUF_TEMP_DIR"

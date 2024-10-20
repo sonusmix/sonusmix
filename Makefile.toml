@@ -148,7 +148,13 @@ cp ./target/release/sonusmix ./AppDir/usr/bin/sonusmix
 
 # Copy Libraries
 mkdir ./AppDir/usr/lib
+for LIB_DIR in $(pkg-config --libs-only-L gdk-pixbuf-2.0 | sed 's/-L\//\//g'); do
+    cp -r --no-preserve=mode $LIB_DIR/* ./AppDir/usr/lib
+done
 for LIB_DIR in $(pkg-config --libs-only-L gtk4 | sed 's/-L\//\//g'); do
+    cp -r --no-preserve=mode $LIB_DIR/* ./AppDir/usr/lib
+done
+for LIB_DIR in $(pkg-config --libs-only-L librsvg-2.0 | sed 's/-L\//\//g'); do
     cp -r --no-preserve=mode $LIB_DIR/* ./AppDir/usr/lib
 done
 lddtree --copy-to-tree ./AppDir --bindir=/trash --libdir=/usr/lib target/release/sonusmix
@@ -157,6 +163,9 @@ rm -rf ./AppDir/trash
 # Remove the Pipewire lib as the one from the host should be used instead. The Pipewire dylibs are
 # loaded dynamically and so they don't need to be the exact same version.
 rm ./AppDir/usr/lib/libpipewire-0.3.so.0
+
+# Copy gdk-pixbuf-query-loaders
+cp "$(command -v gdk-pixbuf-query-loaders)" ./AppDir/usr/bin/
 
 # Copy AppRun
 cp ./assets/AppRun ./AppDir/

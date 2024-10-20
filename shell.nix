@@ -17,11 +17,13 @@ mkShell {
     resvg
     pax-utils
     appimagetool
+    gdk-pixbuf
   ];
 
   buildInputs = [
     # library deps
     gtk4
     pipewire
+    librsvg
   ];
 }
