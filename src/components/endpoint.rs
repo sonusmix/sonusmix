@@ -7,14 +7,16 @@ use relm4::prelude::*;
 use relm4::{actions::RelmActionGroup, gtk::prelude::*};
 
 use crate::pipewire_api::PortKind;
+use crate::state::settings::SonusmixSettings;
 use crate::state::{
-    Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState,
+    Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState, SONUSMIX_SETTINGS,
 };
 
 use super::connect_endpoints::ConnectEndpoints;
 
 pub struct Endpoint {
     endpoint: PwEndpoint,
+    settings: SonusmixSettings,
     renaming: bool,
     custom_name_buffer: gtk::EntryBuffer,
     connect_endpoints: Controller<ConnectEndpoints>,
@@ -31,6 +33,7 @@ impl Endpoint {
 #[derive(Debug, Clone)]
 pub enum EndpointMsg {
     UpdateState(Arc<SonusmixState>),
+    UpdateSettings(SonusmixSettings),
     Volume(f64),
     ToggleMute,
     ToggleLocked,
@@ -168,10 +171,14 @@ impl FactoryComponent for Endpoint {
                     }
                 },
                 gtk::Scale {
-                    set_range: (0.0, 125.0),
+                    #[watch]
+                    set_range: (0.0, self.settings.volume_limit),
                     set_increments: (1.0, 5.0),
-                    add_mark: (100.0, gtk::PositionType::Bottom, None),
                     set_draw_value: true,
+                    #[watch]
+                    clear_marks: (),
+                    #[watch]
+                    add_mark: (100.0, gtk::PositionType::Bottom, None),
                     set_format_value_func => move |_, value| format!("{value:.0}%"),
 
                     #[watch]
@@ -267,6 +274,8 @@ impl FactoryComponent for Endpoint {
             .get(&endpoint_desc)
             .expect("endpoint component failed to find matching endpoint on init")
             .clone();
+        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| EndpointMsg::UpdateSettings(settings.clone()));
+        let settings = { SONUSMIX_SETTINGS.read().clone() };
         let details_short = endpoint.details_short();
         let details_long = endpoint.details_long();
 
@@ -278,6 +287,7 @@ impl FactoryComponent for Endpoint {
 
         Self {
             endpoint,
+            settings,
             renaming: false,
             custom_name_buffer,
             connect_endpoints,
@@ -330,6 +340,9 @@ impl FactoryComponent for Endpoint {
                     self.details_short = self.endpoint.details_short();
                     self.details_long = self.endpoint.details_long();
                 }
+            }
+            EndpointMsg::UpdateSettings(settings) => {
+                self.settings = settings;
             }
             EndpointMsg::Volume(volume) => SonusmixReducer::emit(SonusmixMsg::SetVolume(
                 self.endpoint.descriptor,

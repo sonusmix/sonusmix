@@ -8,6 +8,7 @@ use relm4::prelude::*;
 use relm4::{factory::FactoryView, gtk::prelude::*};
 
 use crate::pipewire_api::PortKind;
+use crate::state::settings::SonusmixSettings;
 use crate::state::{
     Endpoint as PwEndpoint, EndpointDescriptor, GroupNode, GroupNodeId, GroupNodeKind, SonusmixMsg,
     SonusmixReducer, SonusmixState, SONUSMIX_SETTINGS,
@@ -19,17 +20,17 @@ use super::endpoint::{slider_to_volume, volume_to_slider};
 pub struct Group {
     pub endpoint: PwEndpoint,
     pub group_node: GroupNode,
+    settings: SonusmixSettings,
     renaming: bool,
     name_buffer: gtk::EntryBuffer,
     connect_sources: Controller<ConnectEndpoints>,
     connect_sinks: Controller<ConnectEndpoints>,
-    show_group_change_warning: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum GroupMsg {
     UpdateState(Arc<SonusmixState>),
-    SetShowGroupChangeWarning(bool),
+    UpdateSettings(SonusmixSettings),
     Volume(f64),
     ToggleMute,
     ToggleLocked,
@@ -142,10 +143,15 @@ impl FactoryComponent for Group {
                 gtk::Scale {
                     set_orientation: gtk::Orientation::Vertical,
                     set_inverted: true,
-                    set_range: (0.0, 100.0),
+                    #[watch]
+                    set_range: (0.0, self.settings.volume_limit),
                     set_increments: (1.0, 5.0),
                     set_draw_value: true,
                     set_value_pos: gtk::PositionType::Bottom,
+                    #[watch]
+                    clear_marks: (),
+                    #[watch]
+                    add_mark: (100.0, gtk::PositionType::Right, None),
                     set_format_value_func => move |_, value| format!("{value:.0}%"),
 
                     #[watch]
@@ -265,10 +271,8 @@ impl FactoryComponent for Group {
     fn init_model(id: GroupNodeId, _index: &DynamicIndex, sender: FactorySender<Self>) -> Self {
         let sonusmix_state =
             SonusmixReducer::subscribe(sender.input_sender(), GroupMsg::UpdateState);
-        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| {
-            GroupMsg::SetShowGroupChangeWarning(settings.show_group_node_change_warning)
-        });
-        let show_group_change_warning = { SONUSMIX_SETTINGS.read().show_group_node_change_warning };
+        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| GroupMsg::UpdateSettings(settings.clone()));
+        let settings = { SONUSMIX_SETTINGS.read().clone() };
         let endpoint = sonusmix_state
             .endpoints
             .get(&EndpointDescriptor::GroupNode(id))
@@ -291,11 +295,11 @@ impl FactoryComponent for Group {
         Self {
             endpoint,
             group_node,
+            settings,
             renaming: false,
             name_buffer,
             connect_sources,
             connect_sinks,
-            show_group_change_warning,
         }
     }
 
@@ -339,8 +343,8 @@ impl FactoryComponent for Group {
                     self.group_node = group_node.clone();
                 }
             }
-            GroupMsg::SetShowGroupChangeWarning(show) => {
-                self.show_group_change_warning = show;
+            GroupMsg::UpdateSettings(settings) => {
+                self.settings = settings;
             }
             GroupMsg::Volume(volume) => SonusmixReducer::emit(SonusmixMsg::SetVolume(
                 self.endpoint.descriptor,
@@ -375,7 +379,7 @@ impl FactoryComponent for Group {
                     Some(self.name_buffer.text().to_string()),
                 );
                 if confirm {
-                    if self.show_group_change_warning {
+                    if self.settings.show_group_node_change_warning {
                         let _ = sender.output(GroupOutput::MessageWithWarning(message));
                     } else {
                         SonusmixReducer::emit(message);
@@ -384,7 +388,7 @@ impl FactoryComponent for Group {
             }
             GroupMsg::ChangeKind(kind) => {
                 let message = SonusmixMsg::ChangeGroupNodeKind(self.group_node.id, kind);
-                if self.show_group_change_warning {
+                if self.settings.show_group_node_change_warning {
                     let _ = sender.output(GroupOutput::MessageWithWarning(message));
                 } else {
                     SonusmixReducer::emit(message);
