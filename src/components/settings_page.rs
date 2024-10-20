@@ -178,8 +178,6 @@ impl Component for SettingsPage {
     fn update(&mut self, msg: SettingsMsg, _sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             SettingsMsg::SettingsChanged(settings) => {
-                debug!("settings changed: {settings:?}");
-
                 update_property!(self, settings, lock_endpoint_connections);
                 update_property!(self, settings, lock_group_node_connections);
                 update_property!(self, settings, show_group_node_change_warning);
@@ -220,6 +218,7 @@ impl WidgetTemplate for ConfigSection {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
             set_hexpand: true,
+            set_spacing: 8,
 
             gtk::Label {
                 set_markup: &format!( r#"<span size="xx-large" weight="bold">{}</span>"#, init),

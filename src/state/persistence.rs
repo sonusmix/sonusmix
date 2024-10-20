@@ -124,7 +124,7 @@ pub(super) async fn autosave_task() {
             () = &mut sleep => {
                 // Timer elapsed, save if there was an update
                 if state_updated {
-                    debug!("Saving state");
+                    debug!("Auto-saving state");
                     state_updated = false;
                     let persistent_state = PersistentState::from_state(state.as_ref().clone());
                     if let Err(err) = persistent_state.save() {
@@ -132,7 +132,7 @@ pub(super) async fn autosave_task() {
                     }
                 }
                 if let Some(save_settings) = settings {
-                    debug!("Saving settings");
+                    debug!("Auto-saving settings");
                     let persistent_settings = PersistentSettings::from_settings(save_settings.clone());
                     if let Err(err) = persistent_settings.save() {
                         error!("Error saving settings: {err:#}");

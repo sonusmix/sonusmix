@@ -102,6 +102,7 @@ impl Component for App {
                 },
             },
 
+            #[transition(SlideLeftRight)]
             match model.page {
                 Page::Main => gtk::Paned {
                     set_orientation: gtk::Orientation::Vertical,

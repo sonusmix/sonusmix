@@ -7,12 +7,15 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::pipewire_api::PortKind;
+use crate::state::settings::SonusmixSettings;
 use crate::state::{
     Endpoint, EndpointDescriptor, LinkState, SonusmixMsg, SonusmixReducer, SonusmixState,
+    SONUSMIX_SETTINGS,
 };
 
 pub struct ConnectEndpoints {
     sonusmix_state: Arc<SonusmixState>,
+    settings: SonusmixSettings,
     base_endpoint: Endpoint,
     base_kind: PortKind,
     items: FactoryVecDeque<ConnectEndpointItem>,
@@ -21,8 +24,9 @@ pub struct ConnectEndpoints {
 
 #[derive(Debug)]
 pub enum ConnectEndpointsMsg {
-    StateUpdate(Arc<SonusmixState>),
-    ConnectionChanged(ConnectEndpointItemOutput),
+    UpdateState(Arc<SonusmixState>),
+    UpdateSettings(SonusmixSettings),
+    ConnectionChanged((EndpointDescriptor, ConnectEndpointAction)),
 }
 
 #[relm4::component(pub)]
@@ -123,7 +127,11 @@ impl SimpleComponent for ConnectEndpoints {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let sonusmix_state =
-            SonusmixReducer::subscribe(sender.input_sender(), ConnectEndpointsMsg::StateUpdate);
+            SonusmixReducer::subscribe(sender.input_sender(), ConnectEndpointsMsg::UpdateState);
+        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| {
+            ConnectEndpointsMsg::UpdateSettings(settings.clone())
+        });
+        let settings = { SONUSMIX_SETTINGS.read().clone() };
 
         let base_endpoint = sonusmix_state
             .endpoints
@@ -140,6 +148,7 @@ impl SimpleComponent for ConnectEndpoints {
 
         let mut model = Self {
             sonusmix_state,
+            settings,
             base_endpoint,
             base_kind,
             items,
@@ -155,46 +164,41 @@ impl SimpleComponent for ConnectEndpoints {
 
     fn update(&mut self, msg: ConnectEndpointsMsg, _sender: ComponentSender<Self>) {
         match msg {
-            ConnectEndpointsMsg::StateUpdate(sonusmix_state) => {
+            ConnectEndpointsMsg::UpdateState(sonusmix_state) => {
                 self.sonusmix_state = sonusmix_state;
                 self.update_items();
             }
-            ConnectEndpointsMsg::ConnectionChanged(msg) => {
-                // TODO: Handle groups
-                let msg = if self.base_endpoint.descriptor.is_kind(PortKind::Source) {
-                    match msg {
-                        ConnectEndpointItemOutput::ConnectEndpoint(endpoint) => {
-                            SonusmixMsg::Link(self.base_endpoint.descriptor, endpoint)
-                        }
-                        ConnectEndpointItemOutput::DisconnectEndpoint(endpoint) => {
-                            SonusmixMsg::RemoveLink(self.base_endpoint.descriptor, endpoint)
-                        }
-                        ConnectEndpointItemOutput::SetEndpointLocked(endpoint, locked) => {
-                            SonusmixMsg::SetLinkLocked(
-                                self.base_endpoint.descriptor,
-                                endpoint,
-                                locked,
-                            )
-                        }
-                    }
+            ConnectEndpointsMsg::UpdateSettings(settings) => {
+                self.settings = settings;
+            }
+            ConnectEndpointsMsg::ConnectionChanged((other_descriptor, msg)) => {
+                let (source, sink) = match self.base_kind {
+                    PortKind::Source => (self.base_endpoint.descriptor, other_descriptor),
+                    PortKind::Sink => (other_descriptor, self.base_endpoint.descriptor),
+                };
+                let connects_group = matches!(source, EndpointDescriptor::GroupNode(_))
+                    || matches!(sink, EndpointDescriptor::GroupNode(_));
+                let auto_lock = if connects_group {
+                    self.settings.lock_group_node_connections
                 } else {
-                    match msg {
-                        ConnectEndpointItemOutput::ConnectEndpoint(endpoint) => {
-                            SonusmixMsg::Link(endpoint, self.base_endpoint.descriptor)
-                        }
-                        ConnectEndpointItemOutput::DisconnectEndpoint(endpoint) => {
-                            SonusmixMsg::RemoveLink(endpoint, self.base_endpoint.descriptor)
-                        }
-                        ConnectEndpointItemOutput::SetEndpointLocked(endpoint, locked) => {
-                            SonusmixMsg::SetLinkLocked(
-                                endpoint,
-                                self.base_endpoint.descriptor,
-                                locked,
-                            )
-                        }
+                    self.settings.lock_endpoint_connections
+                };
+                let (msg, auto_lock_msg) = match msg {
+                    ConnectEndpointAction::ConnectEndpoint => {
+                        (SonusmixMsg::Link(source, sink), auto_lock.then_some(true))
+                    }
+                    ConnectEndpointAction::DisconnectEndpoint => (
+                        SonusmixMsg::RemoveLink(source, sink),
+                        auto_lock.then_some(false),
+                    ),
+                    ConnectEndpointAction::SetEndpointLocked(locked) => {
+                        (SonusmixMsg::SetLinkLocked(source, sink, locked), None)
                     }
                 };
                 SonusmixReducer::emit(msg);
+                if let Some(lock) = auto_lock_msg {
+                    SonusmixReducer::emit(SonusmixMsg::SetLinkLocked(source, sink, lock));
+                }
             }
         }
     }
@@ -219,6 +223,7 @@ impl ConnectEndpoints {
             {
                 factory.push_back((
                     self.base_endpoint.descriptor,
+                    self.base_kind,
                     candidate,
                     self.sonusmix_state.clone(),
                 ));
@@ -238,6 +243,7 @@ impl ConnectEndpoints {
             {
                 factory.push_back((
                     self.base_endpoint.descriptor,
+                    self.base_kind,
                     candidate,
                     self.sonusmix_state.clone(),
                 ));
@@ -261,6 +267,7 @@ impl ConnectEndpoints {
         {
             factory.push_back((
                 self.base_endpoint.descriptor,
+                self.base_kind,
                 candidate,
                 self.sonusmix_state.clone(),
             ));
@@ -275,17 +282,17 @@ struct ConnectEndpointItem {
 }
 
 #[derive(Debug)]
-pub enum ConnectEndpointItemOutput {
-    ConnectEndpoint(EndpointDescriptor),
-    DisconnectEndpoint(EndpointDescriptor),
-    SetEndpointLocked(EndpointDescriptor, bool),
+pub enum ConnectEndpointAction {
+    ConnectEndpoint,
+    DisconnectEndpoint,
+    SetEndpointLocked(bool),
 }
 
 #[relm4::factory]
 impl FactoryComponent for ConnectEndpointItem {
-    type Init = (EndpointDescriptor, Endpoint, Arc<SonusmixState>);
+    type Init = (EndpointDescriptor, PortKind, Endpoint, Arc<SonusmixState>);
     type Input = Infallible;
-    type Output = ConnectEndpointItemOutput;
+    type Output = (EndpointDescriptor, ConnectEndpointAction);
     type CommandOutput = ();
     type ParentWidget = gtk::ListBox;
 
@@ -312,7 +319,7 @@ impl FactoryComponent for ConnectEndpointItem {
                 },
 
                 connect_clicked[sender, descriptor = self.candidate_endpoint.descriptor] => move |button| {
-                    let _ = sender.output(ConnectEndpointItemOutput::SetEndpointLocked(descriptor, button.is_active()));
+                    let _ = sender.output((descriptor, ConnectEndpointAction::SetEndpointLocked(button.is_active())));
                 },
             },
 
@@ -324,9 +331,9 @@ impl FactoryComponent for ConnectEndpointItem {
 
                 connect_toggled[sender, descriptor = self.candidate_endpoint.descriptor] => move |check| {
                     if check.is_active() {
-                        let _ = sender.output(ConnectEndpointItemOutput::ConnectEndpoint(descriptor));
+                        let _ = sender.output((descriptor, ConnectEndpointAction::ConnectEndpoint));
                     } else {
-                        let _ = sender.output(ConnectEndpointItemOutput::DisconnectEndpoint(descriptor));
+                        let _ = sender.output((descriptor, ConnectEndpointAction::DisconnectEndpoint));
                     }
                 } @endpoint_toggled_handler
             }
@@ -334,16 +341,16 @@ impl FactoryComponent for ConnectEndpointItem {
     }
 
     fn init_model(
-        (base_endpoint, candidate_endpoint, sonusmix_state): (
+        (base_endpoint, base_kind, candidate_endpoint, sonusmix_state): (
             EndpointDescriptor,
+            PortKind,
             Endpoint,
             Arc<SonusmixState>,
         ),
         _index: &DynamicIndex,
         _sender: FactorySender<Self>,
     ) -> Self {
-        // TODO: Handle groups
-        let (source, sink) = if base_endpoint.is_kind(PortKind::Source) {
+        let (source, sink) = if base_kind == PortKind::Source {
             (base_endpoint, candidate_endpoint.descriptor)
         } else {
             (candidate_endpoint.descriptor, base_endpoint)
