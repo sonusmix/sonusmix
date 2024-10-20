@@ -3,13 +3,14 @@ use std::sync::Arc;
 
 use gtk::glib::Propagation;
 use relm4::actions::{RelmAction, RelmActionGroup};
+use relm4::binding::{Binding, BoolBinding};
 use relm4::prelude::*;
 use relm4::{factory::FactoryView, gtk::prelude::*};
 
 use crate::pipewire_api::PortKind;
 use crate::state::{
     Endpoint as PwEndpoint, EndpointDescriptor, GroupNode, GroupNodeId, GroupNodeKind, SonusmixMsg,
-    SonusmixReducer, SonusmixState,
+    SonusmixReducer, SonusmixState, SONUSMIX_SETTINGS,
 };
 
 use super::connect_endpoints::ConnectEndpoints;
@@ -22,11 +23,13 @@ pub struct Group {
     name_buffer: gtk::EntryBuffer,
     connect_sources: Controller<ConnectEndpoints>,
     connect_sinks: Controller<ConnectEndpoints>,
+    show_group_change_warning: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum GroupMsg {
     UpdateState(Arc<SonusmixState>),
+    SetShowGroupChangeWarning(bool),
     Volume(f64),
     ToggleMute,
     ToggleLocked,
@@ -34,6 +37,11 @@ pub enum GroupMsg {
     StartRename,
     FinishRename(bool),
     ChangeKind(GroupNodeKind),
+}
+
+#[derive(Debug, Clone)]
+pub enum GroupOutput {
+    MessageWithWarning(SonusmixMsg),
 }
 
 relm4::new_action_group!(GroupMenuActionGroup, "group-menu");
@@ -44,7 +52,7 @@ relm4::new_stateless_action!(RenameAction, GroupMenuActionGroup, "rename");
 impl FactoryComponent for Group {
     type Init = GroupNodeId;
     type Input = GroupMsg;
-    type Output = Infallible;
+    type Output = GroupOutput;
     type CommandOutput = Infallible;
     type ParentWidget = gtk::Box;
 
@@ -257,6 +265,10 @@ impl FactoryComponent for Group {
     fn init_model(id: GroupNodeId, _index: &DynamicIndex, sender: FactorySender<Self>) -> Self {
         let sonusmix_state =
             SonusmixReducer::subscribe(sender.input_sender(), GroupMsg::UpdateState);
+        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| {
+            GroupMsg::SetShowGroupChangeWarning(settings.show_group_node_change_warning)
+        });
+        let show_group_change_warning = { SONUSMIX_SETTINGS.read().show_group_node_change_warning };
         let endpoint = sonusmix_state
             .endpoints
             .get(&EndpointDescriptor::GroupNode(id))
@@ -274,7 +286,6 @@ impl FactoryComponent for Group {
         let connect_sinks = ConnectEndpoints::builder()
             .launch((endpoint.descriptor, PortKind::Source))
             .forward(sender.input_sender(), |msg| match msg {});
-
         let name_buffer = gtk::EntryBuffer::new(None::<&str>);
 
         Self {
@@ -284,6 +295,7 @@ impl FactoryComponent for Group {
             name_buffer,
             connect_sources,
             connect_sinks,
+            show_group_change_warning,
         }
     }
 
@@ -316,7 +328,7 @@ impl FactoryComponent for Group {
         widgets
     }
 
-    fn update(&mut self, msg: GroupMsg, _sender: FactorySender<Self>) {
+    fn update(&mut self, msg: GroupMsg, sender: FactorySender<Self>) {
         match msg {
             GroupMsg::UpdateState(state) => {
                 if let (Some(endpoint), Some(group_node)) = (
@@ -326,6 +338,9 @@ impl FactoryComponent for Group {
                     self.endpoint = endpoint.clone();
                     self.group_node = group_node.clone();
                 }
+            }
+            GroupMsg::SetShowGroupChangeWarning(show) => {
+                self.show_group_change_warning = show;
             }
             GroupMsg::Volume(volume) => SonusmixReducer::emit(SonusmixMsg::SetVolume(
                 self.endpoint.descriptor,
@@ -355,15 +370,160 @@ impl FactoryComponent for Group {
             }
             GroupMsg::FinishRename(confirm) => {
                 self.renaming = false;
+                let message = SonusmixMsg::RenameEndpoint(
+                    self.endpoint.descriptor,
+                    Some(self.name_buffer.text().to_string()),
+                );
                 if confirm {
-                    SonusmixReducer::emit(SonusmixMsg::RenameEndpoint(
-                        self.endpoint.descriptor,
-                        Some(self.name_buffer.text().to_string()),
-                    ));
+                    if self.show_group_change_warning {
+                        let _ = sender.output(GroupOutput::MessageWithWarning(message));
+                    } else {
+                        SonusmixReducer::emit(message);
+                    }
                 }
             }
             GroupMsg::ChangeKind(kind) => {
-                SonusmixReducer::emit(SonusmixMsg::ChangeGroupNodeKind(self.group_node.id, kind));
+                let message = SonusmixMsg::ChangeGroupNodeKind(self.group_node.id, kind);
+                if self.show_group_change_warning {
+                    let _ = sender.output(GroupOutput::MessageWithWarning(message));
+                } else {
+                    SonusmixReducer::emit(message);
+                }
+            }
+        }
+    }
+}
+
+pub struct GroupChangeWarning {
+    visible: bool,
+    dont_show_again: bool,
+    message: Option<SonusmixMsg>,
+}
+
+#[derive(Debug, Clone)]
+pub enum GroupChangeWarningMsg {
+    Show(SonusmixMsg),
+    Hide(bool),
+    SetDontShowAgain(bool),
+}
+
+#[relm4::component(pub)]
+impl SimpleComponent for GroupChangeWarning {
+    type Init = ();
+    type Input = GroupChangeWarningMsg;
+    type Output = Infallible;
+
+    view! {
+        gtk::Window {
+            set_modal: true,
+            #[watch]
+            set_visible: model.visible,
+            set_default_size: (350, -1),
+            set_resizable: false,
+
+            add_controller = gtk::EventControllerKey {
+                connect_key_pressed[sender] => move |_, key, _, _| {
+                    match key {
+                        gtk::gdk::Key::Return => {
+                            sender.input(GroupChangeWarningMsg::Hide(true));
+                            Propagation::Stop
+                        }
+                        gtk::gdk::Key::Escape => {
+                            sender.input(GroupChangeWarningMsg::Hide(false));
+                            Propagation::Stop
+                        }
+                        _ => Propagation::Proceed,
+                    }
+                }
+            },
+
+            connect_close_request[sender] => move |_| {
+                sender.input(GroupChangeWarningMsg::Hide(false));
+                Propagation::Stop
+            },
+
+            #[wrap(Some)]
+            set_titlebar = &gtk::HeaderBar {
+                #[wrap(Some)]
+                set_title_widget = &gtk::Label {
+                    set_markup: "<b><big>Are you sure?</big></b>",
+                },
+            },
+
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 16,
+                set_margin_all: 16,
+
+                gtk::Label {
+                    set_vexpand: true,
+                    set_valign: gtk::Align::Start,
+                    set_justify: gtk::Justification::Center,
+                    set_wrap: true,
+                    set_label: "Changing some properties of group nodes deletes and re-creates \
+                        them in Pipewire, which may reset the group's connections and volume, if \
+                        they are unlocked.",
+                },
+                gtk::CheckButton {
+                    set_align: gtk::Align::Center,
+                    set_label: Some("Don't show this message again"),
+                    #[watch]
+                    set_active: model.dont_show_again,
+                    connect_toggled[sender] => move |check| {
+                        sender.input(GroupChangeWarningMsg::SetDontShowAgain(check.is_active()));
+                    }
+                },
+                gtk::CenterBox {
+                    set_orientation: gtk::Orientation::Horizontal,
+
+                    #[wrap(Some)]
+                    set_start_widget = &gtk::Button {
+                        set_label: "Cancel",
+                        add_css_class: "destructive-action",
+                        connect_clicked => GroupChangeWarningMsg::Hide(false),
+                    },
+                    #[wrap(Some)]
+                    set_end_widget = &gtk::Button {
+                        set_label: "Confirm",
+                        add_css_class: "suggested-action",
+                        connect_clicked => GroupChangeWarningMsg::Hide(true),
+                    }
+                }
+            }
+        }
+    }
+
+    fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+        let model = GroupChangeWarning {
+            visible: false,
+            dont_show_again: true,
+            message: None,
+        };
+
+        let widgets = view_output!();
+
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: GroupChangeWarningMsg, _sender: ComponentSender<Self>) {
+        match msg {
+            GroupChangeWarningMsg::Show(message) => {
+                self.message = Some(message);
+                self.dont_show_again = true;
+                self.visible = true;
+            }
+            GroupChangeWarningMsg::Hide(confirm) => {
+                if confirm {
+                    SONUSMIX_SETTINGS.write().show_group_node_change_warning =
+                        !self.dont_show_again;
+                }
+                if let Some(message) = self.message.take().filter(|_| confirm) {
+                    SonusmixReducer::emit(message);
+                }
+                self.visible = false;
+            }
+            GroupChangeWarningMsg::SetDontShowAgain(state) => {
+                self.dont_show_again = state;
             }
         }
     }

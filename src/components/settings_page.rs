@@ -43,6 +43,7 @@ impl SimpleComponent for SettingsPage {
         gtk::Box {
             set_orientation: gtk::Orientation::Vertical,
             set_halign: gtk::Align::Center,
+            set_spacing: 8,
             set_margin_all: 16,
 
             #[template]

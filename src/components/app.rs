@@ -8,20 +8,22 @@ use relm4::{prelude::*, Sender};
 use tempfile::TempPath;
 
 use crate::pipewire_api::PortKind;
+use crate::state::settings::SonusmixSettings;
 use crate::state::{
     EndpointDescriptor, GroupNodeKind, SonusmixMsg, SonusmixOutputMsg, SonusmixReducer,
-    SonusmixState,
+    SonusmixState, SONUSMIX_SETTINGS,
 };
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
 use super::debug_view::{DebugView, DebugViewMsg};
 use super::endpoint_list::EndpointList;
-use super::group::Group;
+use super::group::{Group, GroupChangeWarning, GroupChangeWarningMsg, GroupOutput};
 use super::settings_page::SettingsPage;
 
 pub struct App {
     sonusmix_state: Arc<SonusmixState>,
+    settings: SonusmixSettings,
     page: Page,
     about_component: Option<Controller<AboutComponent>>,
     third_party_licenses_file: Option<TempPath>,
@@ -31,11 +33,13 @@ pub struct App {
     choose_endpoint_dialog: Controller<ChooseEndpointDialog>,
     debug_view: Controller<DebugView>,
     settings_page: Controller<SettingsPage>,
+    group_change_warning: Controller<GroupChangeWarning>,
 }
 
 #[derive(Debug)]
 pub enum Msg {
     UpdateState(Arc<SonusmixState>, Option<SonusmixOutputMsg>),
+    UpdateSettings(SonusmixSettings),
     AddGroupNode,
     OpenAbout,
     OpenThirdPartyLicenses,
@@ -193,6 +197,10 @@ impl Component for App {
     fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let sonusmix_state =
             SonusmixReducer::subscribe_msg(sender.input_sender(), Msg::UpdateState);
+        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| {
+            Msg::UpdateSettings(settings.clone())
+        });
+        let settings = { SONUSMIX_SETTINGS.read().clone() };
 
         let choose_endpoint_dialog = ChooseEndpointDialog::builder()
             .transient_for(&root)
@@ -210,10 +218,16 @@ impl Component for App {
             });
         let debug_view = DebugView::builder().launch(()).detach();
         let settings_page = SettingsPage::builder().launch(()).detach();
+        let group_change_warning = GroupChangeWarning::builder()
+            .transient_for(&root)
+            .launch(())
+            .detach();
 
         let mut groups = FactoryVecDeque::builder()
             .launch(gtk::Box::default())
-            .detach();
+            .forward(group_change_warning.sender(), |msg| match msg {
+                GroupOutput::MessageWithWarning(message) => GroupChangeWarningMsg::Show(message),
+            });
         {
             let mut groups = groups.guard();
             for group in sonusmix_state.group_nodes.keys() {
@@ -223,6 +237,7 @@ impl Component for App {
 
         let model = App {
             sonusmix_state,
+            settings,
             page: Page::Main,
             about_component: None,
             third_party_licenses_file: None,
@@ -232,6 +247,7 @@ impl Component for App {
             choose_endpoint_dialog,
             debug_view,
             settings_page,
+            group_change_warning,
         };
 
         let groups_list = model.groups.widget();
@@ -295,6 +311,9 @@ impl Component for App {
                     }
                     _ => {}
                 }
+            }
+            Msg::UpdateSettings(settings) => {
+                self.settings = settings;
             }
             Msg::AddGroupNode => {
                 for num in 1.. {
