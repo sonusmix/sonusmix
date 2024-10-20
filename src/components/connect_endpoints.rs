@@ -160,8 +160,7 @@ impl SimpleComponent for ConnectEndpoints {
                 self.update_items();
             }
             ConnectEndpointsMsg::ConnectionChanged(msg) => {
-                // TODO: Handle groups
-                let msg = if self.base_endpoint.descriptor.is_kind(PortKind::Source) {
+                let msg = if self.base_kind == PortKind::Source {
                     match msg {
                         ConnectEndpointItemOutput::ConnectEndpoint(endpoint) => {
                             SonusmixMsg::Link(self.base_endpoint.descriptor, endpoint)
@@ -219,6 +218,7 @@ impl ConnectEndpoints {
             {
                 factory.push_back((
                     self.base_endpoint.descriptor,
+                    self.base_kind,
                     candidate,
                     self.sonusmix_state.clone(),
                 ));
@@ -238,6 +238,7 @@ impl ConnectEndpoints {
             {
                 factory.push_back((
                     self.base_endpoint.descriptor,
+                    self.base_kind,
                     candidate,
                     self.sonusmix_state.clone(),
                 ));
@@ -261,6 +262,7 @@ impl ConnectEndpoints {
         {
             factory.push_back((
                 self.base_endpoint.descriptor,
+                self.base_kind,
                 candidate,
                 self.sonusmix_state.clone(),
             ));
@@ -283,7 +285,7 @@ pub enum ConnectEndpointItemOutput {
 
 #[relm4::factory]
 impl FactoryComponent for ConnectEndpointItem {
-    type Init = (EndpointDescriptor, Endpoint, Arc<SonusmixState>);
+    type Init = (EndpointDescriptor, PortKind, Endpoint, Arc<SonusmixState>);
     type Input = Infallible;
     type Output = ConnectEndpointItemOutput;
     type CommandOutput = ();
@@ -334,16 +336,16 @@ impl FactoryComponent for ConnectEndpointItem {
     }
 
     fn init_model(
-        (base_endpoint, candidate_endpoint, sonusmix_state): (
+        (base_endpoint, base_kind, candidate_endpoint, sonusmix_state): (
             EndpointDescriptor,
+            PortKind,
             Endpoint,
             Arc<SonusmixState>,
         ),
         _index: &DynamicIndex,
         _sender: FactorySender<Self>,
     ) -> Self {
-        // TODO: Handle groups
-        let (source, sink) = if base_endpoint.is_kind(PortKind::Source) {
+        let (source, sink) = if base_kind == PortKind::Source {
             (base_endpoint, candidate_endpoint.descriptor)
         } else {
             (candidate_endpoint.descriptor, base_endpoint)
