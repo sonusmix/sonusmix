@@ -469,7 +469,7 @@ impl SimpleComponent for GroupChangeWarning {
                 },
                 gtk::CheckButton {
                     set_align: gtk::Align::Center,
-                    set_label: Some("Don't show this message again"),
+                    set_label: Some("Don't show this warning again"),
                     #[watch]
                     set_active: model.dont_show_again,
                     connect_toggled[sender] => move |check| {

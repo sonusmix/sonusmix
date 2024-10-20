@@ -2,7 +2,6 @@ use std::convert::Infallible;
 use std::fmt::Debug;
 use std::ops::Deref;
 
-use log::debug;
 use relm4::binding::{Binding, BoolBinding, ConnectBinding, F64Binding, StringBinding};
 use relm4::gtk::prelude::*;
 use relm4::{prelude::*, view};

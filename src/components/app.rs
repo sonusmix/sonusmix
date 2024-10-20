@@ -33,7 +33,7 @@ pub struct App {
     choose_endpoint_dialog: Controller<ChooseEndpointDialog>,
     debug_view: Controller<DebugView>,
     settings_page: Controller<SettingsPage>,
-    // group_change_warning: Controller<GroupChangeWarning>,
+    _group_change_warning: Controller<GroupChangeWarning>,
 }
 
 #[derive(Debug)]
@@ -251,7 +251,7 @@ impl Component for App {
             choose_endpoint_dialog,
             debug_view,
             settings_page,
-            // group_change_warning,
+            _group_change_warning: group_change_warning,
         };
 
         let groups_list = model.groups.widget();
