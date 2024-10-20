@@ -33,7 +33,7 @@ pub struct App {
     choose_endpoint_dialog: Controller<ChooseEndpointDialog>,
     debug_view: Controller<DebugView>,
     settings_page: Controller<SettingsPage>,
-    group_change_warning: Controller<GroupChangeWarning>,
+    // group_change_warning: Controller<GroupChangeWarning>,
 }
 
 #[derive(Debug)]
@@ -116,6 +116,7 @@ impl Component for App {
                         set_wide_handle: true,
                         set_shrink_start_child: false,
                         set_shrink_end_child: false,
+                        set_margin_bottom: 4,
 
                         #[wrap(Some)]
                         set_start_child = &gtk::Box {
@@ -133,6 +134,8 @@ impl Component for App {
 
                     #[wrap(Some)]
                     set_end_child = &gtk::Frame {
+                        set_margin_top: 4,
+
                         gtk::Box {
                             set_orientation: gtk::Orientation::Vertical,
                             set_hexpand: true,
@@ -247,7 +250,7 @@ impl Component for App {
             choose_endpoint_dialog,
             debug_view,
             settings_page,
-            group_change_warning,
+            // group_change_warning,
         };
 
         let groups_list = model.groups.widget();

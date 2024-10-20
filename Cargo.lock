@@ -1351,6 +1351,7 @@ dependencies = [
  "dirs",
  "dotenvy",
  "fuzzy-matcher",
+ "gtk4",
  "indexmap",
  "itertools 0.13.0",
  "log",

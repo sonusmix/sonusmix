@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use gtk::glib::Propagation;
 use relm4::actions::{RelmAction, RelmActionGroup};
-use relm4::binding::{Binding, BoolBinding};
 use relm4::prelude::*;
 use relm4::{factory::FactoryView, gtk::prelude::*};
 

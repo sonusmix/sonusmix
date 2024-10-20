@@ -24,7 +24,12 @@ pub static SONUSMIX_SETTINGS: SharedState<SonusmixSettings> = SharedState::new()
 enum ReducerMsg {
     Update(SonusmixMsg),
     GraphUpdate(Graph),
-    Exit,
+    Save {
+        /// Clearing the state should almost always be followed by closing the app!
+        clear_state: bool,
+        clear_settings: bool,
+    },
+    SaveAndExit,
 }
 
 pub struct SonusmixReducer {
@@ -67,6 +72,19 @@ impl SonusmixReducer {
                     .expect("reducer was not initialized by SonusmixReducer::init()");
                 let mut graph = Graph::default();
 
+                let save = || {
+                    let state = { reducer.state.read().0.as_ref().clone() };
+                    let persistent_state = PersistentState::from_state(state);
+                    if let Err(err) = persistent_state.save() {
+                        error!("Error saving state: {err:#}");
+                    }
+                    let settings = { SONUSMIX_SETTINGS.read().clone() };
+                    let persistent_settings = PersistentSettings::from_settings(settings);
+                    if let Err(err) = persistent_settings.save() {
+                        error!("Error saving settings: {err:#}");
+                    }
+                };
+
                 for message in rx {
                     match message {
                         ReducerMsg::Update(msg) => {
@@ -101,17 +119,20 @@ impl SonusmixReducer {
                                 *reducer.state.write() = state;
                             }
                         }
-                        ReducerMsg::Exit => {
-                            let state = { reducer.state.read().0.as_ref().clone() };
-                            let persistent_state = PersistentState::from_state(state);
-                            if let Err(err) = persistent_state.save() {
-                                error!("Error saving state: {err:#}");
+                        ReducerMsg::Save {
+                            clear_state,
+                            clear_settings,
+                        } => {
+                            if clear_state {
+                                *reducer.state.write() = Default::default();
                             }
-                            let settings = { SONUSMIX_SETTINGS.read().clone() };
-                            let persistent_settings = PersistentSettings::from_settings(settings);
-                            if let Err(err) = persistent_settings.save() {
-                                error!("Error saving settings: {err:#}");
+                            if clear_settings {
+                                *SONUSMIX_SETTINGS.write() = Default::default();
                             }
+                            save();
+                        }
+                        ReducerMsg::SaveAndExit => {
+                            save();
                             break;
                         }
                     }
@@ -190,6 +211,20 @@ impl SonusmixReducer {
         }
     }
 
+    /// Clearing the state should almost always be followed by exiting the app!
+    pub fn save(clear_state: bool, clear_settings: bool) {
+        if let Some(reducer) = SONUSMIX_REDUCER
+            .read()
+            .expect("panic if reducer lock is poisoned")
+            .get()
+        {
+            let _ = reducer.reducer_sender.send(ReducerMsg::Save {
+                clear_state,
+                clear_settings,
+            });
+        }
+    }
+
     // Save the state to a file, and stop the reducer thread. Any updates after this will not be
     // processed.
     pub fn save_and_exit() {
@@ -201,7 +236,7 @@ impl SonusmixReducer {
                 .expect("panic if reducer lock is poisoned")
                 .get()
             {
-                let _ = reducer.reducer_sender.send(ReducerMsg::Exit);
+                let _ = reducer.reducer_sender.send(ReducerMsg::SaveAndExit);
             } else {
                 return;
             }
