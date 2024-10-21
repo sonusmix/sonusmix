@@ -34,7 +34,7 @@ impl PipewireHandle {
             mpsc::Sender<ToPipewireMessage>,
             mpsc::Receiver<ToPipewireMessage>,
         ),
-        update_fn: impl Fn(Graph) + Send + 'static,
+        update_fn: impl Fn(Box<Graph>) + Send + 'static,
     ) -> Result<Self> {
         // TODO: Decide if we actually need a dedicated channel and message type to communicate
         // from Pipewire to the main thread, or if the graph updates are enough

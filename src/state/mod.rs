@@ -929,7 +929,7 @@ impl SonusmixState {
     /// Resolve an endpoint to a set of nodes in the Pipewire graph.
     ///
     /// Returns a list of [`PwNode`], which are present on both states.
-    fn resolve_endpoint<'graph, 'settings>(
+    fn resolve_endpoint<'graph>(
         &self,
         endpoint: EndpointDescriptor,
         graph: &'graph Graph,

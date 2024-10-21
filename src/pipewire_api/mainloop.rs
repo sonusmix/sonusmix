@@ -349,7 +349,7 @@ pub fn init_device_listeners(store: Rc<RefCell<Store>>, id: u32) {
 }
 
 pub(super) fn init_mainloop(
-    update_fn: impl Fn(Graph) + Send + 'static,
+    update_fn: impl Fn(Box<Graph>) + Send + 'static,
 ) -> Result<(
     JoinHandle<()>,
     pipewire::channel::Sender<ToPipewireMessage>,
@@ -411,7 +411,7 @@ pub(super) fn init_mainloop(
             let mainloop = mainloop.clone();
             let store = store.clone();
             move |message| match message {
-                ToPipewireMessage::Update => update_fn(store.borrow().dump_graph()),
+                ToPipewireMessage::Update => update_fn(Box::new(store.borrow().dump_graph())),
                 ToPipewireMessage::NodeVolume(id, volume) => {
                     if let Err(err) = store.borrow_mut().set_node_volume(id, volume) {
                         error!("Error setting volume: {err:?}");

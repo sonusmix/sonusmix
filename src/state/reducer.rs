@@ -24,7 +24,7 @@ const GRAPH_UPDATE_DEBOUNCE_TIME: f64 = 1.0 / 60.0;
 #[derive(Debug, Clone)]
 enum ReducerMsg {
     Update(SonusmixMsg),
-    GraphUpdate(Graph),
+    GraphUpdate(Box<Graph>),
     SettingsChanged,
     Save {
         /// Clearing the state should almost always be followed by closing the app!
@@ -47,7 +47,9 @@ impl SonusmixReducer {
     /// subscribers. May only be called once.
     /// # Panics
     /// This function will panic if it is ever called a second time.
-    pub fn init(pw_sender: mpsc::Sender<ToPipewireMessage>) -> impl Fn(Graph) + Send + 'static {
+    pub fn init(
+        pw_sender: mpsc::Sender<ToPipewireMessage>,
+    ) -> impl Fn(Box<Graph>) + Send + 'static {
         // Ensure that this function is only ever called once
         static IS_INITIALIZED: AtomicBool = AtomicBool::new(false);
         // I don't really care about performance for this one small part, and SeqCst provides the
@@ -72,7 +74,7 @@ impl SonusmixReducer {
                 let reducer = reducer_guard
                     .get()
                     .expect("reducer was not initialized by SonusmixReducer::init()");
-                let mut graph = Graph::default();
+                let mut graph: Box<Graph> = Default::default();
 
                 let save = || {
                     let state = { reducer.state.read().0.as_ref().clone() };
@@ -213,7 +215,7 @@ impl SonusmixReducer {
         // will contain the most recent of the graphs given by calls of this function during the
         // delay.
         |new_graph| {
-            static GRAPH: Mutex<Option<Graph>> = Mutex::new(None);
+            static GRAPH: Mutex<Option<Box<Graph>>> = Mutex::new(None);
 
             let mut graph = GRAPH.lock().expect("graph lock poisoned");
             if let Some(graph) = graph.as_mut() {
