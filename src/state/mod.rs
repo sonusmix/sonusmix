@@ -1487,13 +1487,13 @@ fn are_nodes_connected(
     if source
         .ports
         .iter()
-        .filter(|(_, kind)| *kind == PortKind::Source)
-        .all(|(id, _)| relevant_links.iter().any(|link| link.start_port == *id))
+        .filter(|(_, kind, _)| *kind == PortKind::Source)
+        .all(|(id, _, _)| relevant_links.iter().any(|link| link.start_port == *id))
         || sink
             .ports
             .iter()
-            .filter(|(_, kind)| *kind == PortKind::Sink)
-            .all(|(id, _)| relevant_links.iter().any(|link| link.end_port == *id))
+            .filter(|(_, kind, _)| *kind == PortKind::Sink)
+            .all(|(id, _, _)| relevant_links.iter().any(|link| link.end_port == *id))
     {
         return Some(true);
     }
@@ -1532,10 +1532,10 @@ mod tests {
     /// 2 = port (source)
     fn basic_graph_ephermal_node_setup() -> (Graph, SonusmixState) {
         let client_of_node = Client::new_test(0, false, Vec::from([1]));
-        let port_of_node = Port::new_test(2, 1, PortKind::Source);
+        let port_of_node = Port::new_test(2, 1, PortKind::Source, false);
         let mut pipewire_node = Node::new_test(1, EndpointId::Client(0));
 
-        pipewire_node.ports = vec![(2, PortKind::Source)];
+        pipewire_node.ports = vec![(2, PortKind::Source, false)];
 
         let pipewire_state = Graph {
             group_nodes: HashMap::new(),
@@ -1575,14 +1575,14 @@ mod tests {
     fn advanced_graph_ephermal_node_setup() -> (Graph, SonusmixState) {
         let pipewire_state = {
             let mut source_node = Node::new_test(1, EndpointId::Client(2));
-            source_node.ports = vec![(3, PortKind::Source)];
+            source_node.ports = vec![(3, PortKind::Source, false)];
             let source_client = Client::new_test(2, false, Vec::from([1]));
-            let source_port = Port::new_test(3, 1, PortKind::Source);
+            let source_port = Port::new_test(3, 1, PortKind::Source, false);
 
             let mut sink_node = Node::new_test(2, EndpointId::Client(4));
-            sink_node.ports = vec![(5, PortKind::Sink)];
+            sink_node.ports = vec![(5, PortKind::Sink, false)];
             let sink_client = Client::new_test(4, false, Vec::from([2]));
-            let sink_port = Port::new_test(5, 2, PortKind::Sink);
+            let sink_port = Port::new_test(5, 2, PortKind::Sink, false);
 
             let link = Link::new_test(
                 6,

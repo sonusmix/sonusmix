@@ -261,7 +261,8 @@ pub struct Node<P = pipewire::node::Node, L = Option<pipewire::node::NodeListene
     pub id: u32,
     pub identifier: NodeIdentifier,
     pub endpoint: EndpointId,
-    pub ports: Vec<(u32, PortKind)>,
+    /// The bool represents whether the port is a monitor
+    pub ports: Vec<(u32, PortKind, bool)>,
     // #[serde(skip)]
     pub channel_volumes: Vec<f32>,
     pub mute: bool,
@@ -280,7 +281,19 @@ pub enum EndpointId {
 
 impl<P, L> Node<P, L> {
     pub fn has_port_kind(&self, kind: PortKind) -> bool {
-        self.ports.iter().any(|(_, port_kind)| *port_kind == kind)
+        self.ports
+            .iter()
+            .any(|(_, port_kind, _)| *port_kind == kind)
+    }
+
+    /// A node is considered to be a monitor if it has at least one source port, and all of its
+    /// source ports are monitor ports.
+    pub fn is_source_monitor(&self) -> bool {
+        self.has_port_kind(PortKind::Source)
+            && self
+                .ports
+                .iter()
+                .all(|(_, port_kind, is_monitor)| *port_kind != PortKind::Source || *is_monitor)
     }
 }
 
@@ -362,6 +375,7 @@ pub struct Port<P = pipewire::port::Port> {
     pub channel: String,
     pub node: u32,
     pub kind: PortKind,
+    pub is_monitor: bool,
     pub links: Vec<u32>,
     #[serde(skip)]
     pub(super) _proxy: P,
@@ -388,6 +402,7 @@ impl Port {
                 .to_owned(),
             node: object.parse_fields([*NODE_ID], "integer")?,
             kind: object.parse_fields([*PORT_DIRECTION], "'in' or 'out'")?,
+            is_monitor: props.get(*PORT_MONITOR) == Some("true"),
             links: Vec::new(),
             _proxy: proxy,
         })
@@ -400,19 +415,21 @@ impl Port {
             channel: self.channel.clone(),
             node: self.node,
             kind: self.kind,
+            is_monitor: self.is_monitor,
             links: self.links.clone(),
             _proxy: (),
         }
     }
 
     #[cfg(test)]
-    pub fn new_test(id: u32, node: u32, kind: PortKind) -> Port<()> {
+    pub fn new_test(id: u32, node: u32, kind: PortKind, is_monitor: bool) -> Port<()> {
         Port {
             id,
             name: "TESTING PORT".to_string(),
             channel: "L".to_string(),
             node,
             kind,
+            is_monitor,
             links: Vec::new(),
             _proxy: (),
         }

@@ -103,7 +103,8 @@ impl Store {
         } else if let Some(port) = self.ports.remove(&id) {
             // If the node the port belongs to exists, remove the port from it
             if let Some(node) = self.nodes.get_mut(&port.node) {
-                node.ports.retain(|(id, _)| *id != port.id);
+                node.ports.retain(|(id, _, _)| *id != port.id);
+                node.identifier.update_is_monitor(node.is_source_monitor());
             }
         } else if let Some(link) = self.links.remove(&id) {
             // If the ports the link belongs to exist, remove the link from them
@@ -178,8 +179,9 @@ impl Store {
         node.ports = self
             .ports
             .values()
-            .filter_map(|port| (port.node == node.id).then_some((port.id, port.kind)))
+            .filter_map(|port| (port.node == node.id).then_some((port.id, port.kind, port.is_monitor)))
             .collect();
+        node.identifier.update_is_monitor(node.is_source_monitor());
 
         // If the endpoint the node belongs to exists, add the node to it
         match node.endpoint {
@@ -221,7 +223,8 @@ impl Store {
 
         // If the node the port belongs to exists, add the port to it
         if let Some(node) = self.nodes.get_mut(&port.node) {
-            node.ports.push((port.id, port.kind));
+            node.ports.push((port.id, port.kind, port.is_monitor));
+            node.identifier.update_is_monitor(node.is_source_monitor());
         }
 
         // Add the port

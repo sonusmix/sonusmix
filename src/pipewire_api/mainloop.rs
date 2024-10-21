@@ -174,14 +174,14 @@ impl Master {
         let end_ports: Vec<&Port> = end_node
             .ports
             .iter()
-            .filter(|(_, kind)| *kind == PortKind::Sink)
-            .filter_map(|(port_id, _)| store.ports.get(port_id))
+            .filter(|(_, kind, _)| *kind == PortKind::Sink)
+            .filter_map(|(port_id, _, _)| store.ports.get(port_id))
             .collect();
         let port_pairs: Vec<(&Port, &Port)> = start_node
             .ports
             .iter()
-            .filter(|(_, kind)| *kind == PortKind::Source)
-            .filter_map(|(port_id, _)| {
+            .filter(|(_, kind, _)| *kind == PortKind::Source)
+            .filter_map(|(port_id, _, _)| {
                 let start_port = store.ports.get(port_id)?;
                 let end_port = end_ports
                     .iter()
