@@ -19,11 +19,13 @@ use super::{settings::SonusmixSettings, SonusmixMsg, SonusmixOutputMsg, Sonusmix
 
 static SONUSMIX_REDUCER: RwLock<OnceLock<SonusmixReducer>> = RwLock::new(OnceLock::new());
 pub static SONUSMIX_SETTINGS: SharedState<SonusmixSettings> = SharedState::new();
+const GRAPH_UPDATE_DEBOUNCE_TIME: f64 = 1.0 / 60.0;
 
 #[derive(Debug, Clone)]
 enum ReducerMsg {
     Update(SonusmixMsg),
     GraphUpdate(Graph),
+    SettingsChanged,
     Save {
         /// Clearing the state should almost always be followed by closing the app!
         clear_state: bool,
@@ -89,8 +91,10 @@ impl SonusmixReducer {
                     match message {
                         ReducerMsg::Update(msg) => {
                             let mut state = { reducer.state.read().0.as_ref().clone() };
-                            let (output_msg, mut messages) = state.update(&graph, msg.clone());
-                            messages.extend(state.diff(&graph));
+                            let settings = { SONUSMIX_SETTINGS.read().clone() };
+                            let (output_msg, mut messages) =
+                                state.update(&graph, msg.clone(), &settings);
+                            messages.extend(state.diff(&graph, &settings));
                             for message in messages {
                                 reducer
                                     .pw_sender
@@ -105,8 +109,25 @@ impl SonusmixReducer {
                         }
                         ReducerMsg::GraphUpdate(new_graph) => {
                             graph = new_graph;
+                            let settings = { SONUSMIX_SETTINGS.read().clone() };
                             let mut state = { reducer.state.read().0.as_ref().clone() };
-                            let messages = state.diff(&graph);
+                            let messages = state.diff(&graph, &settings);
+                            for message in messages {
+                                reducer
+                                    .pw_sender
+                                    .send(message)
+                                    .expect("Failed to send message to Pipewire thread");
+                            }
+                            let state = (Arc::new(state), None);
+                            {
+                                // Write the new version of the state
+                                *reducer.state.write() = state;
+                            }
+                        }
+                        ReducerMsg::SettingsChanged => {
+                            let settings = { SONUSMIX_SETTINGS.read().clone() };
+                            let mut state = { reducer.state.read().0.as_ref().clone() };
+                            let messages = state.diff(&graph, &settings);
                             for message in messages {
                                 reducer
                                     .pw_sender
@@ -167,8 +188,22 @@ impl SonusmixReducer {
             pw_sender,
             reducer_sender: tx,
             thread_handle: reducer_handle,
-            // TODO: initialize from disk
             state,
+        });
+
+        // Tell the reducer to diff the graph again whenever there is a settings update
+        relm4::spawn(async {
+            let (tx, rx) = relm4::channel();
+            SONUSMIX_SETTINGS.subscribe(&tx, |_| ());
+            while rx.recv().await.is_some() {
+                if let Some(reducer) = SONUSMIX_REDUCER
+                    .read()
+                    .expect("panic if reducer lock is poisoned")
+                    .get()
+                {
+                    let _ = reducer.reducer_sender.send(ReducerMsg::SettingsChanged);
+                }
+            }
         });
 
         // Start the autosave task
@@ -186,7 +221,7 @@ impl SonusmixReducer {
             } else {
                 *graph = Some(new_graph);
                 relm4::spawn(async {
-                    tokio::time::sleep(Duration::from_secs_f64(1.0 / 60.0)).await;
+                    tokio::time::sleep(Duration::from_secs_f64(GRAPH_UPDATE_DEBOUNCE_TIME)).await;
                     if let Some(graph) = GRAPH.lock().expect("graph lock poisoned").take() {
                         if let Some(reducer) = SONUSMIX_REDUCER
                             .read()

@@ -179,7 +179,9 @@ impl Store {
         node.ports = self
             .ports
             .values()
-            .filter_map(|port| (port.node == node.id).then_some((port.id, port.kind, port.is_monitor)))
+            .filter_map(|port| {
+                (port.node == node.id).then_some((port.id, port.kind, port.is_monitor))
+            })
             .collect();
         node.identifier.update_is_monitor(node.is_source_monitor());
 

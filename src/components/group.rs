@@ -270,7 +270,9 @@ impl FactoryComponent for Group {
     fn init_model(id: GroupNodeId, _index: &DynamicIndex, sender: FactorySender<Self>) -> Self {
         let sonusmix_state =
             SonusmixReducer::subscribe(sender.input_sender(), GroupMsg::UpdateState);
-        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| GroupMsg::UpdateSettings(settings.clone()));
+        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| {
+            GroupMsg::UpdateSettings(settings.clone())
+        });
         let settings = { SONUSMIX_SETTINGS.read().clone() };
         let endpoint = sonusmix_state
             .endpoints

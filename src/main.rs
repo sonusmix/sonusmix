@@ -25,9 +25,15 @@ fn main() {
     let (tx, rx) = std::sync::mpsc::channel();
     let update_fn = state::SonusmixReducer::init(tx.clone());
     // Allow testing the app without needing to connect to Pipewire
-    let _pipewire_handle = if std::env::var("SONUSMIX_NO_PIPEWIRE").ok().filter(|v| !v.is_empty()).is_none() {
+    let _pipewire_handle = if std::env::var("SONUSMIX_NO_PIPEWIRE")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .is_none()
+    {
         Some(PipewireHandle::init((tx, rx), update_fn).expect("failed to connect to Pipewire"))
-    } else { None };
+    } else {
+        None
+    };
 
     let app = RelmApp::new(SONUSMIX_APP_ID);
 

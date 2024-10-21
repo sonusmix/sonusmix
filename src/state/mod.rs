@@ -5,6 +5,7 @@ pub mod settings;
 use indexmap::IndexMap;
 use log::{error, warn};
 pub use reducer::{SonusmixReducer, SONUSMIX_SETTINGS};
+use settings::SonusmixSettings;
 
 use std::collections::{HashMap, HashSet};
 
@@ -62,6 +63,7 @@ impl SonusmixState {
         &mut self,
         graph: &Graph,
         message: SonusmixMsg,
+        settings: &SonusmixSettings,
     ) -> (Option<SonusmixOutputMsg>, Vec<ToPipewireMessage>) {
         let mut pipewire_messages = Vec::new();
         let output_message = 'handler: {
@@ -152,7 +154,7 @@ impl SonusmixState {
                         .filter(|endpoint| match endpoint {
                             EndpointDescriptor::EphemeralNode(..)
                             | EndpointDescriptor::PersistentNode(..) => self
-                                .resolve_endpoint(*endpoint, graph)
+                                .resolve_endpoint(*endpoint, graph, settings)
                                 .into_iter()
                                 .flatten()
                                 .any(|node| application.matches(&node.identifier, kind)),
@@ -207,7 +209,10 @@ impl SonusmixState {
                         EndpointDescriptor::Application(id, _kind) => {
                             // If there are still matching nodes, simply mark the application as
                             // inactive. Otherwise, remove it.
-                            if self.resolve_endpoint(endpoint_desc, graph).is_some() {
+                            if self
+                                .resolve_endpoint(endpoint_desc, graph, settings)
+                                .is_some()
+                            {
                                 if let Some(application) = self.applications.get_mut(&id) {
                                     application.is_active = false;
                                 } else {
@@ -224,7 +229,7 @@ impl SonusmixState {
                 }
                 SonusmixMsg::SetVolume(endpoint_desc, volume) => {
                     // Resolve here instead of later so we don't have overlapping borrows
-                    let nodes = self.resolve_endpoint(endpoint_desc, graph);
+                    let nodes = self.resolve_endpoint(endpoint_desc, graph, settings);
                     let Some(endpoint) = self.endpoints.get_mut(&endpoint_desc) else {
                         // If the endpoint doesn't exist, exit
                         break 'handler None;
@@ -253,7 +258,7 @@ impl SonusmixState {
                 }
                 SonusmixMsg::SetMute(endpoint_desc, muted) => {
                     // Resolve here instead of later so we don't have overlapping borrows
-                    let nodes = self.resolve_endpoint(endpoint_desc, graph);
+                    let nodes = self.resolve_endpoint(endpoint_desc, graph, settings);
                     let Some(endpoint) = self.endpoints.get_mut(&endpoint_desc) else {
                         // If the endpoint doesn't exist, exit
                         break 'handler None;
@@ -276,7 +281,7 @@ impl SonusmixState {
                 }
                 SonusmixMsg::SetVolumeLocked(endpoint_desc, locked) => {
                     // Resolve here instead of later so we don't have overlapping borrows
-                    let nodes = self.resolve_endpoint(endpoint_desc, graph);
+                    let nodes = self.resolve_endpoint(endpoint_desc, graph, settings);
                     let Some(endpoint) = self.endpoints.get_mut(&endpoint_desc) else {
                         // If the endpoint doesn't exist, exit
                         break 'handler None;
@@ -338,8 +343,12 @@ impl SonusmixState {
                     }
 
                     // If either of these is None, then the loop will iterate 0 times
-                    let source_nodes = self.resolve_endpoint(source, graph).unwrap_or_default();
-                    let sink_nodes = self.resolve_endpoint(sink, graph).unwrap_or_default();
+                    let source_nodes = self
+                        .resolve_endpoint(source, graph, settings)
+                        .unwrap_or_default();
+                    let sink_nodes = self
+                        .resolve_endpoint(sink, graph, settings)
+                        .unwrap_or_default();
 
                     let mut messages: Vec<ToPipewireMessage> = Vec::new();
                     for source in &source_nodes {
@@ -401,13 +410,15 @@ impl SonusmixState {
                         LinkState::PartiallyConnected | LinkState::ConnectedUnlocked => {
                             // If the link is unlocked, it gets removed entirely
                             self.links.swap_remove(link_position);
-                            pipewire_messages
-                                .extend(self.remove_pipewire_node_links(graph, source, sink));
+                            pipewire_messages.extend(
+                                self.remove_pipewire_node_links(graph, source, sink, settings),
+                            );
                         }
                         LinkState::ConnectedLocked => {
                             // If it is locked, it gets changed to DisconnectedLocked
                             self.links[link_position].state = LinkState::DisconnectedLocked;
-                            let messages = self.remove_pipewire_node_links(graph, source, sink);
+                            let messages =
+                                self.remove_pipewire_node_links(graph, source, sink, settings);
                             if !messages.is_empty() {
                                 self.links[link_position].pending = true;
                             }
@@ -524,8 +535,8 @@ impl SonusmixState {
     // to try and match the Sonusmix state as closely as possible, and marks any endpoints in the
     // Sonusmix state that cannot be found in the Pipewire graph as placeholders. This is only done
     // after updates from the backend.
-    fn diff(&mut self, graph: &Graph) -> Vec<ToPipewireMessage> {
-        let endpoint_nodes = self.diff_nodes(graph);
+    fn diff(&mut self, graph: &Graph, settings: &SonusmixSettings) -> Vec<ToPipewireMessage> {
+        let endpoint_nodes = self.diff_nodes(graph, settings);
         let mut messages = self.diff_group_nodes(&endpoint_nodes);
         messages.extend(self.diff_properties(&endpoint_nodes));
         messages.extend(self.diff_links(graph, &endpoint_nodes));
@@ -538,7 +549,11 @@ impl SonusmixState {
     /// Basically, this means that every hardware endpoint that exists on both states is returned, while other
     /// hardware endpoints (only existing on the sonusmix state) are marked as a placeholder, so the UI can
     /// display the endpoint as deactivated.
-    fn diff_nodes<'a>(&mut self, graph: &'a Graph) -> HashMap<EndpointDescriptor, Vec<&'a PwNode>> {
+    fn diff_nodes<'a>(
+        &mut self,
+        graph: &'a Graph,
+        settings: &SonusmixSettings,
+    ) -> HashMap<EndpointDescriptor, Vec<&'a PwNode>> {
         let mut remaining_nodes: HashSet<(u32, PortKind)> = graph
             .nodes
             .values()
@@ -555,7 +570,7 @@ impl SonusmixState {
             .collect();
         let mut endpoint_nodes = HashMap::new();
         for endpoint in self.endpoints.keys().copied().collect::<Vec<_>>() {
-            if let Some(nodes) = self.resolve_endpoint(endpoint, graph) {
+            if let Some(nodes) = self.resolve_endpoint(endpoint, graph, settings) {
                 // Mark the endpoint's nodes as seen
                 for node in &nodes {
                     if endpoint.is_single() && endpoint.is_kind(PortKind::Source) {
@@ -914,11 +929,12 @@ impl SonusmixState {
     /// Resolve an endpoint to a set of nodes in the Pipewire graph.
     ///
     /// Returns a list of [`PwNode`], which are present on both states.
-    fn resolve_endpoint<'a>(
+    fn resolve_endpoint<'graph, 'settings>(
         &self,
         endpoint: EndpointDescriptor,
-        graph: &'a Graph,
-    ) -> Option<Vec<&'a PwNode>> {
+        graph: &'graph Graph,
+        settings: &SonusmixSettings,
+    ) -> Option<Vec<&'graph PwNode>> {
         match endpoint {
             EndpointDescriptor::EphemeralNode(id, kind) => {
                 // Check if a node with this ID exists, and if so, that it has ports in the
@@ -965,7 +981,7 @@ impl SonusmixState {
                     .filter_map(|exception| match exception {
                         EndpointDescriptor::EphemeralNode(..)
                         | EndpointDescriptor::PersistentNode(..) => {
-                            self.resolve_endpoint(*exception, graph)
+                            self.resolve_endpoint(*exception, graph, settings)
                         }
                         _ => None,
                     })
@@ -977,6 +993,13 @@ impl SonusmixState {
                     .values()
                     // Filter to matching nodes
                     .filter(|node| application.matches(&node.identifier, kind))
+                    // Filter out monitors if the application is s source and
+                    // settings.application_sources_include_monitors is false
+                    .filter(|node| {
+                        kind != PortKind::Source
+                            || settings.application_sources_include_monitors
+                            || !node.is_source_monitor()
+                    })
                     // Filter out nodes matching the exceptions
                     .filter(|node| !exceptions.iter().any(|n| n.id == node.id))
                     .collect();
@@ -1035,10 +1058,15 @@ impl SonusmixState {
         graph: &Graph,
         source: EndpointDescriptor,
         sink: EndpointDescriptor,
+        settings: &SonusmixSettings,
     ) -> Vec<ToPipewireMessage> {
         // If either of these is None, then the loop will iterate 0 times
-        let source_nodes = self.resolve_endpoint(source, graph).unwrap_or_default();
-        let sink_nodes = self.resolve_endpoint(sink, graph).unwrap_or_default();
+        let source_nodes = self
+            .resolve_endpoint(source, graph, settings)
+            .unwrap_or_default();
+        let sink_nodes = self
+            .resolve_endpoint(sink, graph, settings)
+            .unwrap_or_default();
 
         let mut messages = Vec::new();
         for source in &source_nodes {
@@ -1656,11 +1684,12 @@ mod tests {
     #[test]
     fn diff_links_1() {
         let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         // fully connected
         assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         // messages should be empty as state is correct
         let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
@@ -1670,10 +1699,11 @@ mod tests {
     #[test]
     fn find_relevant_links() {
         let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
         let source_endpoint = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
         let sink_endpoint = EndpointDescriptor::EphemeralNode(2, PortKind::Sink);
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         let link = pipewire_state.links.get(&6).expect("Link was destroyed");
         // These are the returns expected
@@ -1701,10 +1731,11 @@ mod tests {
     #[test]
     fn diff_nodes_1() {
         let (pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         // Node exists on pipewire state and sonusmix state.
         // Output has to include this node.
@@ -1721,6 +1752,7 @@ mod tests {
     #[test]
     fn diff_nodes_placeholder() {
         let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         // remove the node from the pipewire state to emulate the node being
         // removed.
@@ -1729,7 +1761,7 @@ mod tests {
 
         let sonusmix_node = EndpointDescriptor::EphemeralNode(1, PortKind::Source);
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         // Node only exists on sonusmix state.
         // Output should not include this node.
@@ -1756,6 +1788,7 @@ mod tests {
         let got_volume = 0.125; // this is what it gets from pipewire
 
         let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         // get the node
         let pipewire_node = pipewire_state
@@ -1777,7 +1810,7 @@ mod tests {
 
         // pipewire sent an update with the pipewire state...
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         // Node exists on pipewire state and sonusmix state.
         // Therefore, output has to include this node.
@@ -1797,6 +1830,7 @@ mod tests {
         let new_volume = 0.125; // this is what it gets from pipewire
 
         let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         // get the node
         let pipewire_node = pipewire_state
@@ -1820,7 +1854,7 @@ mod tests {
 
         // pipewire sent an update with the pipewire state...
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         // Node exists on pipewire state and sonusmix state.
         // Therefore, output has to include this node.
@@ -1843,6 +1877,7 @@ mod tests {
         let new_volume = Vec::from([0.125, 0.225]); // this is what it gets from pipewire
 
         let (mut pipewire_state, mut sonusmix_state) = basic_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         // get the node
         let pipewire_node = pipewire_state
@@ -1873,7 +1908,7 @@ mod tests {
 
         // pipewire sent an update with the pipewire state...
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         // Node exists on pipewire state and sonusmix state.
         // Therefore, output has to include this node.
@@ -1928,6 +1963,7 @@ mod tests {
     #[test]
     fn create_link() {
         let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         // remove the link from default state
         sonusmix_state.links.clear();
@@ -1939,7 +1975,7 @@ mod tests {
         {
             // create a link
             let (output_msg, messages) =
-                sonusmix_state.update(&pipewire_state, SonusmixMsg::Link(source, sink));
+                sonusmix_state.update(&pipewire_state, SonusmixMsg::Link(source, sink), &settings);
             let expected_message = ToPipewireMessage::CreateNodeLinks {
                 start_id: 1,
                 end_id: 2,
@@ -1963,7 +1999,7 @@ mod tests {
             .insert(6, Link::new_test(6, 1, 3, 2, 5));
 
         // run the diff
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
         let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
 
         assert!(messages.is_empty());
@@ -1975,14 +2011,18 @@ mod tests {
     #[test]
     fn remove_link() {
         let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         let source = sonusmix_state.active_sources[0];
         let sink = sonusmix_state.active_sinks[0];
 
         {
             // disconnect
-            let (output_msg, messages) =
-                sonusmix_state.update(&pipewire_state, SonusmixMsg::RemoveLink(source, sink));
+            let (output_msg, messages) = sonusmix_state.update(
+                &pipewire_state,
+                SonusmixMsg::RemoveLink(source, sink),
+                &settings,
+            );
             let expected_message = ToPipewireMessage::RemoveNodeLinks {
                 start_id: 1,
                 end_id: 2,
@@ -1998,6 +2038,7 @@ mod tests {
     #[test]
     fn disconnect_locked_link() {
         let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         let source = sonusmix_state.active_sources[0];
         let sink = sonusmix_state.active_sinks[0];
@@ -2008,6 +2049,7 @@ mod tests {
             let (output_msg, messages) = sonusmix_state.update(
                 &pipewire_state,
                 SonusmixMsg::SetLinkLocked(source, sink, false),
+                &settings,
             );
             let expected_message = ToPipewireMessage::RemoveNodeLinks {
                 start_id: 1,
@@ -2032,7 +2074,7 @@ mod tests {
             .insert(6, Link::new_test(6, 1, 3, 2, 5));
 
         // run the diff
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
         let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
 
         // sonusmix should tell pipewire to delete that link again
@@ -2046,6 +2088,7 @@ mod tests {
     #[test]
     fn connect_locked_link() {
         let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         let source = sonusmix_state.active_sources[0];
         let sink = sonusmix_state.active_sinks[0];
@@ -2056,6 +2099,7 @@ mod tests {
             let (output_msg, messages) = sonusmix_state.update(
                 &pipewire_state,
                 SonusmixMsg::SetLinkLocked(source, sink, true),
+                &settings,
             );
             assert!(output_msg.is_none());
             assert!(messages.is_empty());
@@ -2074,7 +2118,7 @@ mod tests {
         pipewire_state.links.clear();
 
         // run the diff
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
         let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
 
         // sonusmix should tell pipewire to create that link again
@@ -2090,6 +2134,7 @@ mod tests {
     /// The link should be added to sonusmix.
     fn new_pipewire_link() {
         let (pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         // fully connected
         assert_eq!(sonusmix_state.links[0].state.is_connected(), Some(true));
@@ -2100,7 +2145,7 @@ mod tests {
         // which is not yet in sonusmix.
         sonusmix_state.links.clear();
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         // since pipewire does not have the link anymore, it should be created again.
         let messages = sonusmix_state.diff_links(&pipewire_state, &endpoint_nodes);
@@ -2113,6 +2158,7 @@ mod tests {
     /// The sonusmix state should remove its unlocked.
     fn pipewire_remove_link_unlocked() {
         let (mut pipewire_state, mut sonusmix_state) = advanced_graph_ephermal_node_setup();
+        let settings = SonusmixSettings::default();
 
         let link = sonusmix_state.links[0];
 
@@ -2122,7 +2168,7 @@ mod tests {
         // now we assume that these nodes are not anymore connected in pipewire
         pipewire_state.links.clear();
 
-        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state);
+        let endpoint_nodes = sonusmix_state.diff_nodes(&pipewire_state, &settings);
 
         // Since the link is not locked, the sonusmix state should be updated
         assert!(!link.state.is_locked());

@@ -5,6 +5,7 @@ pub struct SonusmixSettings {
     pub lock_endpoint_connections: bool,
     pub lock_group_node_connections: bool,
     pub show_group_node_change_warning: bool,
+    pub application_sources_include_monitors: bool,
     pub volume_limit: f64,
 }
 
@@ -12,6 +13,7 @@ pub const DEFAULT_SETTINGS: SonusmixSettings = SonusmixSettings {
     lock_endpoint_connections: false,
     lock_group_node_connections: true,
     show_group_node_change_warning: true,
+    application_sources_include_monitors: false,
     volume_limit: 100.0,
 };
 

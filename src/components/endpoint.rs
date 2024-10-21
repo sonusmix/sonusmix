@@ -9,7 +9,8 @@ use relm4::{actions::RelmActionGroup, gtk::prelude::*};
 use crate::pipewire_api::PortKind;
 use crate::state::settings::SonusmixSettings;
 use crate::state::{
-    Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState, SONUSMIX_SETTINGS,
+    Endpoint as PwEndpoint, EndpointDescriptor, SonusmixMsg, SonusmixReducer, SonusmixState,
+    SONUSMIX_SETTINGS,
 };
 
 use super::connect_endpoints::ConnectEndpoints;
@@ -274,7 +275,9 @@ impl FactoryComponent for Endpoint {
             .get(&endpoint_desc)
             .expect("endpoint component failed to find matching endpoint on init")
             .clone();
-        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| EndpointMsg::UpdateSettings(settings.clone()));
+        SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| {
+            EndpointMsg::UpdateSettings(settings.clone())
+        });
         let settings = { SONUSMIX_SETTINGS.read().clone() };
         let details_short = endpoint.details_short();
         let details_long = endpoint.details_long();

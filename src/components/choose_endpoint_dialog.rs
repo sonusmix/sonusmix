@@ -265,13 +265,15 @@ impl SimpleComponent for ChooseEndpointDialog {
             ChooseEndpointDialogMsg::Close => {
                 self.visible = false;
             }
-            ChooseEndpointDialogMsg::EndpointChosen(endpoint) => {
-                match endpoint {
-                    EndpointDescriptor::EphemeralNode(id, kind) => SonusmixReducer::emit(SonusmixMsg::AddEphemeralNode(id, kind)),
-                    EndpointDescriptor::Application(id, kind) => SonusmixReducer::emit(SonusmixMsg::AddApplication(id, kind)),
-                    _ => todo!(),
+            ChooseEndpointDialogMsg::EndpointChosen(endpoint) => match endpoint {
+                EndpointDescriptor::EphemeralNode(id, kind) => {
+                    SonusmixReducer::emit(SonusmixMsg::AddEphemeralNode(id, kind))
                 }
-            }
+                EndpointDescriptor::Application(id, kind) => {
+                    SonusmixReducer::emit(SonusmixMsg::AddApplication(id, kind))
+                }
+                _ => todo!(),
+            },
             ChooseEndpointDialogMsg::SearchUpdated(search_text) => {
                 self.search_text = search_text;
                 self.update_inactive_endpoints();

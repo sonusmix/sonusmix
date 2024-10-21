@@ -24,6 +24,7 @@ pub struct SettingsPage {
     lock_endpoint_connections_binding: BoolBinding,
     lock_group_node_connections_binding: BoolBinding,
     show_group_node_change_warning_binding: BoolBinding,
+    application_sources_include_monitors_binding: BoolBinding,
     volume_limit_binding: F64Binding,
     confirm_clear_dialog: gtk::AlertDialog,
 }
@@ -76,6 +77,12 @@ impl Component for SettingsPage {
                                 group node",
                             model.show_group_node_change_warning_binding.clone(),
                             DEFAULT_SETTINGS.show_group_node_change_warning,
+                        )),
+                        #[template]
+                        ConfigRow<gtk::Switch, BoolBinding> ((
+                            "Include monitors of sink nodes in application sources",
+                            model.application_sources_include_monitors_binding.clone(),
+                            DEFAULT_SETTINGS.application_sources_include_monitors,
                         )),
                         #[template]
                         ConfigRow<gtk::SpinButton, F64Binding> ((
@@ -150,6 +157,13 @@ impl Component for SettingsPage {
         show_group_node_change_warning_binding.connect_value_notify(|b| {
             SONUSMIX_SETTINGS.write().show_group_node_change_warning = b.get()
         });
+        let application_sources_include_monitors_binding =
+            BoolBinding::new(settings.application_sources_include_monitors);
+        application_sources_include_monitors_binding.connect_value_notify(|b| {
+            SONUSMIX_SETTINGS
+                .write()
+                .application_sources_include_monitors = b.get()
+        });
         let volume_limit_binding = F64Binding::new(settings.volume_limit);
         volume_limit_binding
             .connect_value_notify(|v| SONUSMIX_SETTINGS.write().volume_limit = v.get());
@@ -158,6 +172,7 @@ impl Component for SettingsPage {
             lock_endpoint_connections_binding,
             lock_group_node_connections_binding,
             show_group_node_change_warning_binding,
+            application_sources_include_monitors_binding,
             volume_limit_binding,
             confirm_clear_dialog: gtk::AlertDialog::builder()
                 .message("Confirm clear")
@@ -180,6 +195,7 @@ impl Component for SettingsPage {
                 update_property!(self, settings, lock_endpoint_connections);
                 update_property!(self, settings, lock_group_node_connections);
                 update_property!(self, settings, show_group_node_change_warning);
+                update_property!(self, settings, application_sources_include_monitors);
                 update_property!(self, settings, volume_limit);
             }
             SettingsMsg::Save {
