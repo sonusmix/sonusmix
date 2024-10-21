@@ -285,6 +285,7 @@ where
                 #[name(control)]
                 C {
                     set_margin_start: 8,
+                    set_valign: gtk::Align::Center,
                     bind: &binding,
                 },
             }
