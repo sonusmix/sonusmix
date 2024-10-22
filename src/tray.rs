@@ -1,35 +1,15 @@
-use std::cell::RefCell;
-
 use ksni::{menu::*, *};
 
-use crate::{StatusMsg, SONUSMIX_APP_ID};
+use crate::{MainMsg, SONUSMIX_APP_ID};
 
 #[derive(Debug)]
 pub struct SonusmixTray {
-    tx: RefCell<relm4::Sender<StatusMsg>>,
-    should_exit: bool,
+    sender: relm4::Sender<MainMsg>,
 }
 
 impl SonusmixTray {
-    pub fn new() -> (Self, relm4::Receiver<StatusMsg>) {
-        let (tx, rx) = relm4::channel();
-        (
-            Self {
-                tx: RefCell::new(tx),
-                should_exit: false,
-            },
-            rx,
-        )
-    }
-
-    pub fn status(&self) -> relm4::Receiver<StatusMsg> {
-        let mut lock = self.tx.borrow_mut();
-        let (tx, rx) = relm4::channel();
-        if self.should_exit {
-            let _ = tx.send(StatusMsg::Exit);
-        }
-        *lock = tx;
-        rx
+    pub fn new(sender: relm4::Sender<MainMsg>) -> Self {
+        Self { sender }
     }
 }
 
@@ -54,7 +34,15 @@ impl Tray for SonusmixTray {
             StandardItem {
                 label: "Show".to_owned(),
                 activate: Box::new(|tray: &mut Self| {
-                    let _ = tray.tx.borrow().send(StatusMsg::Show);
+                    let _ = tray.sender.send(MainMsg::Show);
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "Hide".to_owned(),
+                activate: Box::new(|tray: &mut Self| {
+                    let _ = tray.sender.send(MainMsg::Hide);
                 }),
                 ..Default::default()
             }
@@ -62,8 +50,7 @@ impl Tray for SonusmixTray {
             StandardItem {
                 label: "Exit".to_owned(),
                 activate: Box::new(|tray: &mut Self| {
-                    tray.should_exit = true;
-                    let _ = tray.tx.borrow().send(StatusMsg::Exit);
+                    let _ = tray.sender.send(MainMsg::Exit);
                 }),
                 ..Default::default()
             }

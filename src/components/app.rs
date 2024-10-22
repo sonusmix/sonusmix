@@ -1,10 +1,11 @@
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use log::error;
 use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
-use relm4::{prelude::*, Receiver};
+use relm4::prelude::*;
 use tempfile::TempPath;
 
 use crate::pipewire_api::PortKind;
@@ -13,7 +14,7 @@ use crate::state::{
     EndpointDescriptor, GroupNodeKind, SonusmixMsg, SonusmixOutputMsg, SonusmixReducer,
     SonusmixState, SONUSMIX_SETTINGS,
 };
-use crate::StatusMsg;
+use crate::{MainMsg, MAIN_BROKER};
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
@@ -41,7 +42,7 @@ pub struct App {
 pub enum Msg {
     UpdateState(Arc<SonusmixState>, Option<SonusmixOutputMsg>),
     UpdateSettings(SonusmixSettings),
-    TrayStatus(StatusMsg),
+    BringToTop,
     AddGroupNode,
     OpenAbout,
     OpenThirdPartyLicenses,
@@ -71,9 +72,9 @@ relm4::new_stateless_action!(ShowDebugViewAction, MainMenuActionGroup, "show-deb
 #[relm4::component(pub)]
 impl Component for App {
     type CommandOutput = CommandMsg;
-    type Init = Receiver<StatusMsg>;
+    type Init = ();
     type Input = Msg;
-    type Output = ();
+    type Output = Infallible;
 
     view! {
         main_window = gtk::ApplicationWindow {
@@ -83,6 +84,11 @@ impl Component for App {
                 Page::Settings => "Settings",
             }),
             set_default_size: (1100, 800),
+
+            connect_close_request => |_| {
+                MAIN_BROKER.send(MainMsg::Hide);
+                gtk::glib::Propagation::Proceed
+            },
 
             #[wrap(Some)]
             set_titlebar = &gtk::HeaderBar {
@@ -200,12 +206,7 @@ impl Component for App {
         }
     }
 
-    fn init(
-        status_rx: Receiver<StatusMsg>,
-        root: Self::Root,
-        sender: ComponentSender<Self>,
-    ) -> ComponentParts<Self> {
-        relm4::spawn(status_rx.forward(sender.input_sender().clone(), Msg::TrayStatus));
+    fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
         let sonusmix_state =
             SonusmixReducer::subscribe_msg(sender.input_sender(), Msg::UpdateState);
         SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| {
@@ -290,6 +291,8 @@ impl Component for App {
         group.add_action(show_debug_view_action);
         group.register_for_widget(&widgets.main_window);
 
+        widgets.main_window.set_visible(true);
+
         ComponentParts { model, widgets }
     }
 
@@ -331,10 +334,7 @@ impl Component for App {
             Msg::UpdateSettings(settings) => {
                 self.settings = settings;
             }
-            Msg::TrayStatus(message) => match message {
-                StatusMsg::Show => root.present(),
-                StatusMsg::Exit => root.close(),
-            },
+            Msg::BringToTop => root.present(),
             Msg::AddGroupNode => {
                 for num in 1.. {
                     let name = format!("Group {num}");

@@ -8,6 +8,7 @@ use relm4::{prelude::*, view};
 
 use crate::state::settings::{SonusmixSettings, DEFAULT_SETTINGS};
 use crate::state::{SonusmixReducer, SONUSMIX_SETTINGS};
+use crate::{MainMsg, MAIN_BROKER};
 
 /// Generates code to update a binding on `self` iff a given property on `settings` has changed.
 macro_rules! update_property {
@@ -203,8 +204,9 @@ impl Component for SettingsPage {
                 clear_settings,
             } => {
                 if clear_state || clear_settings {
-                    let window = root.toplevel_window().expect("The settings page should have a toplevel window");
-                    let window_clone = window.clone();
+                    let window = root
+                        .toplevel_window()
+                        .expect("The settings page should have a toplevel window");
                     self.confirm_clear_dialog.choose(
                         Some(&window),
                         None::<&gtk::gio::Cancellable>,
@@ -213,7 +215,7 @@ impl Component for SettingsPage {
                             if button == 1 {
                                 SonusmixReducer::save(clear_state, clear_settings);
                                 if clear_state {
-                                    window_clone.close();
+                                    MAIN_BROKER.send(MainMsg::Exit);
                                 }
                             }
                         },
