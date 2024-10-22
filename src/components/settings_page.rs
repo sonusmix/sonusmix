@@ -203,15 +203,17 @@ impl Component for SettingsPage {
                 clear_settings,
             } => {
                 if clear_state || clear_settings {
+                    let window = root.toplevel_window().expect("The settings page should have a toplevel window");
+                    let window_clone = window.clone();
                     self.confirm_clear_dialog.choose(
-                        root.toplevel_window().as_ref(),
+                        Some(&window),
                         None::<&gtk::gio::Cancellable>,
                         move |result| {
                             let button = result.expect("Failed to get alert dialog result");
                             if button == 1 {
                                 SonusmixReducer::save(clear_state, clear_settings);
                                 if clear_state {
-                                    relm4::main_application().quit();
+                                    window_clone.close();
                                 }
                             }
                         },

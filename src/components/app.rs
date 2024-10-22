@@ -4,7 +4,7 @@ use log::error;
 use relm4::actions::{RelmAction, RelmActionGroup};
 use relm4::factory::FactoryVecDeque;
 use relm4::gtk::prelude::*;
-use relm4::{prelude::*, Sender};
+use relm4::{prelude::*, Receiver};
 use tempfile::TempPath;
 
 use crate::pipewire_api::PortKind;
@@ -13,6 +13,7 @@ use crate::state::{
     EndpointDescriptor, GroupNodeKind, SonusmixMsg, SonusmixOutputMsg, SonusmixReducer,
     SonusmixState, SONUSMIX_SETTINGS,
 };
+use crate::StatusMsg;
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
@@ -40,6 +41,7 @@ pub struct App {
 pub enum Msg {
     UpdateState(Arc<SonusmixState>, Option<SonusmixOutputMsg>),
     UpdateSettings(SonusmixSettings),
+    TrayStatus(StatusMsg),
     AddGroupNode,
     OpenAbout,
     OpenThirdPartyLicenses,
@@ -69,7 +71,7 @@ relm4::new_stateless_action!(ShowDebugViewAction, MainMenuActionGroup, "show-deb
 #[relm4::component(pub)]
 impl Component for App {
     type CommandOutput = CommandMsg;
-    type Init = ();
+    type Init = Receiver<StatusMsg>;
     type Input = Msg;
     type Output = ();
 
@@ -198,7 +200,12 @@ impl Component for App {
         }
     }
 
-    fn init(_init: (), root: Self::Root, sender: ComponentSender<Self>) -> ComponentParts<Self> {
+    fn init(
+        status_rx: Receiver<StatusMsg>,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        relm4::spawn(status_rx.forward(sender.input_sender().clone(), Msg::TrayStatus));
         let sonusmix_state =
             SonusmixReducer::subscribe_msg(sender.input_sender(), Msg::UpdateState);
         SONUSMIX_SETTINGS.subscribe(sender.input_sender(), |settings| {
@@ -286,7 +293,12 @@ impl Component for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(
+        &mut self,
+        msg: Self::Input,
+        sender: ComponentSender<Self>,
+        root: &gtk::ApplicationWindow,
+    ) {
         match msg {
             Msg::UpdateState(state, msg) => {
                 self.sonusmix_state = state;
@@ -319,6 +331,10 @@ impl Component for App {
             Msg::UpdateSettings(settings) => {
                 self.settings = settings;
             }
+            Msg::TrayStatus(message) => match message {
+                StatusMsg::Show => root.present(),
+                StatusMsg::Exit => root.close(),
+            },
             Msg::AddGroupNode => {
                 for num in 1.. {
                     let name = format!("Group {num}");
@@ -364,9 +380,5 @@ impl Component for App {
                 Err(err) => error!("Failed to show third party licenses: {:?}", err),
             },
         }
-    }
-
-    fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: Sender<Self::Output>) {
-        SonusmixReducer::save_and_exit();
     }
 }
