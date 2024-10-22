@@ -39,6 +39,7 @@
             buildInputs = [
               gtk4
               pipewire
+              dbus
             ];
           };
         }

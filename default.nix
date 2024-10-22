@@ -18,5 +18,6 @@ pkgs.rustPlatform.buildRustPackage {
     pkgs.glib
     pkgs.gtk4
     pkgs.pipewire
+    pkgs.dbus
   ];
 }

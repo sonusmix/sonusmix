@@ -1,7 +1,6 @@
 use std::sync::atomic::Ordering;
 
 use ksni::{menu::*, *};
-use log::debug;
 
 use crate::{MainMsg, APP_WINDOW_ID, SONUSMIX_APP_ID};
 

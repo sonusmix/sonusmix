@@ -25,5 +25,6 @@ mkShell {
     gtk4
     pipewire
     librsvg
+    dbus
   ];
 }
