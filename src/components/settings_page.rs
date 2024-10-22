@@ -22,6 +22,8 @@ macro_rules! update_property {
 }
 
 pub struct SettingsPage {
+    collapse_to_tray_on_close_binding: BoolBinding,
+    start_collapsed_to_tray_binding: BoolBinding,
     lock_endpoint_connections_binding: BoolBinding,
     lock_group_node_connections_binding: BoolBinding,
     show_group_node_change_warning_binding: BoolBinding,
@@ -60,6 +62,18 @@ impl Component for SettingsPage {
                 ConfigSection("General") {
                     #[template_child]
                     contents {
+                        #[template]
+                        ConfigRow<gtk::Switch, BoolBinding> ((
+                            "Collapse to the system tray when the main window is closed",
+                            model.collapse_to_tray_on_close_binding.clone(),
+                            DEFAULT_SETTINGS.collapse_to_tray_on_close,
+                        )),
+                        #[template]
+                        ConfigRow<gtk::Switch, BoolBinding> ((
+                            "Start collapsed to the system tray",
+                            model.start_collapsed_to_tray_binding.clone(),
+                            DEFAULT_SETTINGS.start_collapsed_to_tray,
+                        )),
                         #[template]
                         ConfigRow<gtk::Switch, BoolBinding> ((
                             "Lock new connections between sources and sinks",
@@ -143,6 +157,16 @@ impl Component for SettingsPage {
         });
         let settings = { SONUSMIX_SETTINGS.read().clone() };
 
+        let collapse_to_tray_on_close_binding =
+            BoolBinding::new(settings.collapse_to_tray_on_close);
+        collapse_to_tray_on_close_binding.connect_value_notify(|b| {
+            SONUSMIX_SETTINGS.write().collapse_to_tray_on_close = b.get()
+        });
+        let start_collapsed_to_tray_binding =
+            BoolBinding::new(settings.start_collapsed_to_tray);
+        start_collapsed_to_tray_binding.connect_value_notify(|b| {
+            SONUSMIX_SETTINGS.write().start_collapsed_to_tray = b.get()
+        });
         let lock_endpoint_connections_binding =
             BoolBinding::new(settings.lock_endpoint_connections);
         lock_endpoint_connections_binding.connect_value_notify(|b| {
@@ -170,6 +194,8 @@ impl Component for SettingsPage {
             .connect_value_notify(|v| SONUSMIX_SETTINGS.write().volume_limit = v.get());
 
         let model = SettingsPage {
+            collapse_to_tray_on_close_binding,
+            start_collapsed_to_tray_binding,
             lock_endpoint_connections_binding,
             lock_group_node_connections_binding,
             show_group_node_change_warning_binding,
@@ -193,6 +219,8 @@ impl Component for SettingsPage {
     fn update(&mut self, msg: SettingsMsg, _sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             SettingsMsg::SettingsChanged(settings) => {
+                update_property!(self, settings, collapse_to_tray_on_close);
+                update_property!(self, settings, start_collapsed_to_tray);
                 update_property!(self, settings, lock_endpoint_connections);
                 update_property!(self, settings, lock_group_node_connections);
                 update_property!(self, settings, show_group_node_change_warning);

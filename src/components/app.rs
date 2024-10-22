@@ -43,6 +43,7 @@ pub enum Msg {
     UpdateState(Arc<SonusmixState>, Option<SonusmixOutputMsg>),
     UpdateSettings(SonusmixSettings),
     BringToTop,
+    Close,
     AddGroupNode,
     OpenAbout,
     OpenThirdPartyLicenses,
@@ -85,8 +86,8 @@ impl Component for App {
             }),
             set_default_size: (1100, 800),
 
-            connect_close_request => |_| {
-                MAIN_BROKER.send(MainMsg::Hide);
+            connect_close_request[sender] => move |_| {
+                sender.input(Msg::Close);
                 gtk::glib::Propagation::Proceed
             },
 
@@ -335,6 +336,13 @@ impl Component for App {
                 self.settings = settings;
             }
             Msg::BringToTop => root.present(),
+            Msg::Close => {
+                MAIN_BROKER.send(if self.settings.collapse_to_tray_on_close {
+                    MainMsg::Hide
+                } else {
+                    MainMsg::Exit
+                });
+            }
             Msg::AddGroupNode => {
                 for num in 1.. {
                     let name = format!("Group {num}");

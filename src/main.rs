@@ -92,13 +92,13 @@ impl SimpleComponent for Main {
         let tray_handle = tray_service.handle();
         tray_service.spawn();
 
-        let app = App::builder().launch(()).detach();
+        let app = (!settings.start_collapsed_to_tray).then(|| App::builder().launch(()).detach());
 
         let model = Main {
             settings,
             _pipewire_handle: pipewire_handle,
             tray_handle,
-            app: Some(app),
+            app,
         };
 
         let widgets = view_output!();
