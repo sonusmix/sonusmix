@@ -3,7 +3,10 @@ mod pipewire_api;
 mod state;
 mod tray;
 
-use std::convert::Infallible;
+use std::{
+    convert::Infallible,
+    sync::atomic::{AtomicI32, Ordering},
+};
 
 use components::app::{App, Msg};
 use log::debug;
@@ -56,6 +59,7 @@ pub enum MainMsg {
 }
 
 static MAIN_BROKER: MessageBroker<MainMsg> = MessageBroker::new();
+static APP_WINDOW_ID: AtomicI32 = AtomicI32::new(0);
 
 #[relm4::component(pub)]
 impl SimpleComponent for Main {
@@ -88,11 +92,16 @@ impl SimpleComponent for Main {
         });
         let settings = { SONUSMIX_SETTINGS.read().clone() };
 
+        let app = (!settings.start_collapsed_to_tray).then(|| {
+            App::builder()
+                .update_root(|window| relm4::main_application().add_window(window))
+                .launch(())
+                .detach()
+        });
+
         let tray_service = ksni::TrayService::new(SonusmixTray::new(sender.input_sender().clone()));
         let tray_handle = tray_service.handle();
         tray_service.spawn();
-
-        let app = (!settings.start_collapsed_to_tray).then(|| App::builder().launch(()).detach());
 
         let model = Main {
             settings,
@@ -115,13 +124,19 @@ impl SimpleComponent for Main {
                 if let Some(ref app) = self.app {
                     app.emit(Msg::BringToTop);
                 } else {
-                    self.app = Some(App::builder().launch(()).detach());
+                    self.app = Some(
+                        App::builder()
+                            .update_root(|window| relm4::main_application().add_window(window))
+                            .launch(())
+                            .detach(),
+                    );
                 }
             }
             MainMsg::Hide => {
                 if let Some(ref app) = self.app {
                     app.widget().close();
                     self.app = None;
+                    APP_WINDOW_ID.store(0, Ordering::Release);
                 }
                 SonusmixReducer::save(false, false);
             }

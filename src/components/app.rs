@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use log::error;
@@ -14,7 +15,7 @@ use crate::state::{
     EndpointDescriptor, GroupNodeKind, SonusmixMsg, SonusmixOutputMsg, SonusmixReducer,
     SonusmixState, SONUSMIX_SETTINGS,
 };
-use crate::{MainMsg, MAIN_BROKER};
+use crate::{MainMsg, APP_WINDOW_ID, MAIN_BROKER};
 
 use super::about::{open_third_party_licenses, AboutComponent};
 use super::choose_endpoint_dialog::{ChooseEndpointDialog, ChooseEndpointDialogMsg};
@@ -89,6 +90,10 @@ impl Component for App {
             connect_close_request[sender] => move |_| {
                 sender.input(Msg::Close);
                 gtk::glib::Propagation::Proceed
+            },
+
+            connect_realize => move |window| {
+                APP_WINDOW_ID.store(window.id() as i32, Ordering::Release);
             },
 
             #[wrap(Some)]

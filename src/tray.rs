@@ -1,6 +1,9 @@
-use ksni::{menu::*, *};
+use std::sync::atomic::Ordering;
 
-use crate::{MainMsg, SONUSMIX_APP_ID};
+use ksni::{menu::*, *};
+use log::debug;
+
+use crate::{MainMsg, APP_WINDOW_ID, SONUSMIX_APP_ID};
 
 #[derive(Debug)]
 pub struct SonusmixTray {
@@ -22,6 +25,9 @@ impl Tray for SonusmixTray {
     }
     fn id(&self) -> String {
         SONUSMIX_APP_ID.to_owned()
+    }
+    fn window_id(&self) -> i32 {
+        APP_WINDOW_ID.load(Ordering::Acquire)
     }
     fn tool_tip(&self) -> ToolTip {
         ToolTip {
