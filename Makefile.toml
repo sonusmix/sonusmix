@@ -83,7 +83,6 @@ condition = { files_modified = { input = [
 dependencies = ["build-icons"]
 command = "flatpak-builder"
 args = [
-    "--user",
     "--force-clean",
     "--install-deps-from=flathub",
     "--repo=flatpak-repo",
