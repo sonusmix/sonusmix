@@ -9,6 +9,8 @@ graph TD
 )](https://matrix.to/#/#sonusmix:matrix.org) [![](https://img.shields.io/badge/mirror-GitHub-white
 )](https://github.com/sonusmix/sonusmix)
 
+### \[[Installation](#installation)\] \[[Building From Source](#building-from-source)\]
+
 A tool to easily route and manage audio devices in Pipewire. It intends to enable the same features and workflows as [Voicemeeter](https://vb-audio.com/Voicemeeter/) or [Pulsemeeter](https://github.com/theRealCarneiro/pulsemeeter), but with a more intuitive interface, and while making it as easy as possible to combine with other Pipewire audio apps.
 
 
@@ -45,7 +47,21 @@ If you use audio plugins such as [easyeffects](https://github.com/wwmm/easyeffec
 If there is interest, we may implement a patchbay view to make it easier to see what connections are going where.
 
 ## Installation
-You can find AppImage builds [here](https://codeberg.org/sonusmix/sonusmix/releases). Please open an issue if you have any issues with the AppImages. In the future we also plan to maintain a flatpak repository and/or release to Flathub, but for now you can also build a Flatpak locally using the instructions in [Building from source](#building-from-source).
+
+### Flatpak
+We currently host our own Flatpak repo, but plan to submit Sonusmix to Flathub in the future. To install, add the repository:
+```bash
+flatpak remote-add --if-not-exists --user sonusmix.org https://flatpak.sonusmix.org/sonusmix.org.flatpakrepo
+flatpak install sonusmix.org org.sonusmix.Sonusmix
+```
+Or, install the flatpak directly:
+```bash
+flatpak install --user https://flatpak.sonusmix.org/Sonusmix.flatpakref
+```
+You can also build from source, as described below.
+
+### AppImage
+You can find AppImage builds [here](https://codeberg.org/sonusmix/sonusmix/releases). Please open an issue if you have any issues with the AppImages. You can also build from source, as described below.
 
 ## Building From Source
 You can build the project with Nix, or install the dependencies manually:
