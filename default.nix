@@ -1,7 +1,7 @@
 { pkgs ? import <nixpkgs> { } }:
 pkgs.rustPlatform.buildRustPackage {
   pname = "sonusmix";
-  version = "0.1.0";
+  version = "0.1.1";
   doCheck = false;
   cargoLock = {
     lockFile = ./Cargo.lock;
