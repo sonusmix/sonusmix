@@ -298,7 +298,7 @@ impl ChooseEndpointDialog {
             .iter()
             .filter(|(_, kind, _)| *kind == self.list)
             .collect();
-        nodes.sort_by(|a, b| a.2.human_name().cmp(b.2.human_name()));
+        nodes.sort_by(|a, b| a.2.human_name(self.list).cmp(b.2.human_name(self.list)));
 
         // Get candidate applications
         let mut application_factory = self.applications.guard();
@@ -320,13 +320,13 @@ impl ChooseEndpointDialog {
             // issue. If it is, we can come back to this later.
             nodes.retain(|node| {
                 fuzzy_matcher
-                    .fuzzy_match(node.2.human_name(), &self.search_text)
+                    .fuzzy_match(node.2.human_name(self.list), &self.search_text)
                     .is_some()
             });
             nodes.sort_by_cached_key(|node| {
                 std::cmp::Reverse(
                     fuzzy_matcher
-                        .fuzzy_match(node.2.human_name(), &self.search_text)
+                        .fuzzy_match(node.2.human_name(self.list), &self.search_text)
                         .expect("No non-matching nodes should be remaining in the vec"),
                 )
             });
@@ -362,7 +362,7 @@ impl ChooseEndpointDialog {
             });
             applications.sort_by_cached_key(|(application, nodes)| {
                 let search_name = std::iter::once(application.name.as_str())
-                    .chain(nodes.iter().map(|node| node.2.human_name()))
+                    .chain(nodes.iter().map(|node| node.2.human_name(self.list)))
                     .join(" ");
                 std::cmp::Reverse(
                     fuzzy_matcher
@@ -375,7 +375,7 @@ impl ChooseEndpointDialog {
         for (id, kind, identifier) in nodes {
             node_factory.push_back((
                 EndpointDescriptor::EphemeralNode(*id, *kind),
-                identifier.human_name().to_owned(),
+                identifier.human_name(self.list).to_owned(),
                 identifier.details().map(ToOwned::to_owned),
                 ChooseEndpointItemMode::Normal,
             ));
@@ -402,7 +402,7 @@ impl ChooseEndpointDialog {
             for (id, kind, identifier) in nodes {
                 application_factory.push_back((
                     EndpointDescriptor::EphemeralNode(*id, *kind),
-                    identifier.human_name().to_owned(),
+                    identifier.human_name(self.list).to_owned(),
                     identifier.details().map(ToOwned::to_owned),
                     ChooseEndpointItemMode::Nested,
                 ));

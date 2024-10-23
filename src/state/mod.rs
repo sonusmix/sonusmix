@@ -80,7 +80,7 @@ impl SonusmixState {
                         .retain(|(cand_id, cand_kind, _)| *cand_id != id || *cand_kind != kind);
 
                     let endpoint = Endpoint::new(descriptor)
-                        .with_display_name(node.identifier.human_name().to_owned())
+                        .with_display_name(node.identifier.human_name(kind).to_owned())
                         .with_icon_name(node.identifier.icon_name().to_string())
                         .with_details(
                             node.identifier

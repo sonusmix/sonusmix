@@ -3,6 +3,8 @@ use std::sync::OnceLock;
 use pipewire::{keys::*, spa::utils::dict::DictRef};
 use serde::{Deserialize, Serialize};
 
+use super::PortKind;
+
 /// Handles parsing all of the identifying fields on a Node, and uses them to generate different
 /// identifiers. Only serializes fields relevant to identifying the node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +33,9 @@ pub struct NodeIdentifier {
     #[serde(skip)]
     identifier_: OnceLock<String>,
     #[serde(skip)]
-    human_name_: OnceLock<String>,
+    human_name_source: OnceLock<String>,
+    #[serde(skip)]
+    human_name_sink: OnceLock<String>,
     #[serde(skip)]
     details_: OnceLock<Option<String>>,
 }
@@ -53,7 +57,8 @@ impl NodeIdentifier {
             app_icon_name: props.get(*APP_ICON_NAME).map(ToOwned::to_owned),
             icon_name_: OnceLock::new(),
             identifier_: OnceLock::new(),
-            human_name_: OnceLock::new(),
+            human_name_source: OnceLock::new(),
+            human_name_sink: OnceLock::new(),
             details_: OnceLock::new(),
         }
     }
@@ -75,14 +80,16 @@ impl NodeIdentifier {
             app_icon_name: None,
             icon_name_: OnceLock::new(),
             identifier_: OnceLock::new(),
-            human_name_: OnceLock::new(),
+            human_name_source: OnceLock::new(),
+            human_name_sink: OnceLock::new(),
             details_: OnceLock::new(),
         }
     }
 
     pub fn update_is_monitor(&mut self, is_monitor: bool) {
         self.is_monitor = is_monitor;
-        self.human_name_.take();
+        self.human_name_source.take();
+        self.human_name_sink.take();
     }
 
     #[rustfmt::skip]
@@ -100,7 +107,8 @@ impl NodeIdentifier {
 
         self.icon_name_.take();
         self.identifier_.take();
-        self.human_name_.take();
+        self.human_name_source.take();
+        self.human_name_sink.take();
         self.details_.take();
     }
 
@@ -133,8 +141,12 @@ impl NodeIdentifier {
         })
     }
 
-    pub fn human_name(&self) -> &str {
-        self.human_name_.get_or_init(|| {
+    pub fn human_name(&self, kind: PortKind) -> &str {
+        let name_lock = match kind {
+            PortKind::Source => &self.human_name_source,
+            PortKind::Sink => &self.human_name_sink,
+        };
+        name_lock.get_or_init(|| {
             let name = self
                 .node_description
                 .as_ref()
@@ -144,7 +156,7 @@ impl NodeIdentifier {
                 .or(self.node_name.as_ref())
                 .cloned()
                 .unwrap_or_default();
-            if self.is_monitor {
+            if kind == PortKind::Source && self.is_monitor {
                 // Uses unicode "fullwidth" brackets which I personally think look nicer
                 format!("［Monitor］{}", name)
             } else {
@@ -161,9 +173,10 @@ impl NodeIdentifier {
                     .or(self.media_name.as_ref())
                     .or(self.media_title.as_ref())
                     .or_else(|| {
-                        self.application_name
-                            .as_ref()
-                            .filter(|app_name| *app_name != self.human_name())
+                        self.application_name.as_ref().filter(|app_name| {
+                            *app_name != self.human_name(PortKind::Source)
+                                && *app_name != self.human_name(PortKind::Sink)
+                        })
                     })
                     .map(|s| Some(s.clone()))
                     .unwrap_or_default()
