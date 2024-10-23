@@ -75,7 +75,10 @@ done
 
 [tasks.build-flatpak]
 condition = { files_modified = { input = [
-    "./target/release/sonusmix",
+    "./Cargo.toml",
+    "./src/**/*.rs",
+    "./assets/**/*",
+    "./org.sonusmix.Sonusmix.json",
 ], output = [
     "./flatpak-repo/**/*",
 ] } }
