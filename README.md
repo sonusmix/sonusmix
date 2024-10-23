@@ -14,7 +14,7 @@ A tool to easily route and manage audio devices in Pipewire. It intends to enabl
 
 The screenshot below was taken using the `Mint-Y-Dark-Orange` GTK theme and the `Papirus` icon theme, but the app should change to match your configured GTK and icon theme.
 
-![Screenshot of Sonusmix](assets/readme/sonusmix1.png)
+![Screenshot of Sonusmix](assets/readme/sonusmix2.png)
 
 ## Features
 
