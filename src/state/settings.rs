@@ -12,7 +12,7 @@ pub struct SonusmixSettings {
 }
 
 pub const DEFAULT_SETTINGS: SonusmixSettings = SonusmixSettings {
-    collapse_to_tray_on_close: true,
+    collapse_to_tray_on_close: false,
     start_collapsed_to_tray: false,
     lock_endpoint_connections: false,
     lock_group_node_connections: true,
