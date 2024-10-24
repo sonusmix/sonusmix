@@ -47,6 +47,7 @@ If you use audio plugins such as [easyeffects](https://github.com/wwmm/easyeffec
 If there is interest, we may implement a patchbay view to make it easier to see what connections are going where.
 
 ## Installation
+### \[[Flatpak](#flatpak)\] \[[AppImage](#appimage)\]
 
 ### Flatpak
 We currently host our own Flatpak repo, but plan to submit Sonusmix to Flathub in the future. To install, add the repository:
