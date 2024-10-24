@@ -51,14 +51,41 @@ If there is interest, we may implement a patchbay view to make it easier to see 
 ### Flatpak
 We currently host our own Flatpak repo, but plan to submit Sonusmix to Flathub in the future. To install, add the repository:
 ```bash
-flatpak remote-add --if-not-exists --user sonusmix.org https://flatpak.sonusmix.org/sonusmix.org.flatpakrepo
+flatpak remote-add --if-not-exists sonusmix.org https://flatpak.sonusmix.org/sonusmix.org.flatpakrepo
 flatpak install sonusmix.org org.sonusmix.Sonusmix
 ```
 Or, install the flatpak directly:
 ```bash
-flatpak install --user https://flatpak.sonusmix.org/Sonusmix.flatpakref
+flatpak install https://flatpak.sonusmix.org/Sonusmix.flatpakref
 ```
 You can also build from source, as described below.
+
+### Flatpak and GTK Themes
+Unfortunately, Flatpak makes it difficult for apps to match your system theme. If you have issues, here are some troubleshooting steps to try:
+- If you have Sonusmix installed as system, try installing it as a user instead (run the flatpak commands above with `--user`), and vice versa. You can see how it's currently installed by running `flatpak list`.
+- Sonusmix is built in GTK4, which not all GTK themes support. You can check if a theme supports it by running `ls /usr/share/themes/<theme>` (or another folder where your theme might be). If there is a folder named `gtk-4<something>`, it should support GTK4.
+- Flatpaks are sandboxed, and by default they can't read the themes on your system. Unfortunately, most system package managers install themes to `/usr/share/themes`, and Flatpak doesn't allow giving apps access inside `/usr/share`. Instead, there are two other directories which GTK searches for themes: `~/.themes` and `~/.local/share/themes`. Copy the theme you want to use from `/usr/share/themes` into both of these locations, creating them if they don't already exist:
+```bash
+mkdir -p ~/.themes ~/.local/share/themes
+cp -r /usr/share/<theme> ~/.themes/
+cp -r /usr/share/<theme> ~/.local/share/themes
+```
+Then, give Sonusmix access to these directories (you may have to use `sudo`):
+```bash
+flatpak override org.sonusmix.Sonusmix --filesystem="$HOME/.themes"
+flatpak override org.sonusmix.Sonusmix --filesystem="$HOME/.local/share/themes"
+```
+Or, you can do this for all of your installed Flatpak apps (again, `sudo` may be required):
+```bash
+flatpak override --filesystem="$HOME/.themes"
+flatpak override --filesystem="$HOME/.local/share/themes"
+```
+You can also use an application such as [Flatseal](https://flathub.org/apps/com.github.tchx84.Flatseal) for this.
+- Finally, GTK may not be able to read what theme it should be using. On wayland, this depends on `xdg-desktop-portal-gtk`. You can make sure it's running with `systemctl --user status xdg-desktop-portal-gtk`. You can also manually set the GTK theme using an environment variable (again, `sudo` may be required):
+```bash
+flatpak override org.sonusmix.Sonusmix --env="GTK_THEME=<theme>" # For Sonusmix only
+flatpak override --env="GTK_THEME=<theme>" # For all Flatpak apps
+```
 
 ### AppImage
 You can find AppImage builds [here](https://codeberg.org/sonusmix/sonusmix/releases). Please open an issue if you have any issues with the AppImages. You can also build from source, as described below.
