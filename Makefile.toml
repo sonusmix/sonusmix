@@ -163,8 +163,9 @@ lddtree --copy-to-tree ./AppDir --bindir=/trash --libdir=/usr/lib target/release
 chmod -R 755 ./AppDir/usr/lib/*
 rm -rf ./AppDir/trash
 # Remove the Pipewire lib as the one from the host should be used instead. The Pipewire dylibs are
-# loaded dynamically and so they don't need to be the exact same version.
-rm ./AppDir/usr/lib/libpipewire-0.3.so.0
+# loaded dynamically and so they don't need to be the exact same version. The same goes for
+# libxkbcommon.
+rm ./AppDir/usr/lib/libpipewire-0.3.so.0 ./AppDir/usr/lib/libxkbcommon.so.0
 
 # Copy gdk-pixbuf-query-loaders
 cp "$(command -v gdk-pixbuf-query-loaders)" ./AppDir/usr/bin/
