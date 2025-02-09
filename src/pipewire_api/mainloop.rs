@@ -159,8 +159,14 @@ impl Master {
         Ok(())
     }
 
+    #[cfg(test)]
+    fn create_node_links(&self, start_id: u32, end_id: u32) -> Result<()> {
+        return Err(anyhow!("NO TESTING"));
+    }
+
     /// Create links between all matching ports of two nodes. Checks that both ids are nodes, and
     /// skips links that do not already exist. Only connects nodes in the specified direction.
+    #[cfg(not(test))]
     fn create_node_links(&self, start_id: u32, end_id: u32) -> Result<()> {
         let store = self.store.borrow();
         let Some(start_node) = store.nodes.get(&start_id) else {
@@ -298,7 +304,12 @@ impl Master {
 /// | start = 1 | map single port to all end ports |
 /// | otherwise | map by channel names |
 // TODO: Maybe announce a possibly incorrect map?
-fn map_ports(start: Vec<&Port>, end: Vec<&Port>) -> Vec<(u32, u32)> {
+// TODO: Remove MapFunctionport (currently needed for testing)
+#[cfg(not(test))]
+type MapFunctionPort = Port;
+#[cfg(test)]
+type MapFunctionPort = Port<()>;
+fn map_ports(start: Vec<&MapFunctionPort>, end: Vec<&MapFunctionPort>) -> Vec<(u32, u32)> {
     if start.len() == 1 {
         return end
             .iter()
@@ -384,6 +395,18 @@ pub fn init_device_listeners(store: Rc<RefCell<Store>>, id: u32) {
     }
 }
 
+#[cfg(test)]
+pub(super) fn init_mainloop(
+    update_fn: impl Fn(Box<Graph>) + Send + 'static,
+) -> Result<(
+    JoinHandle<()>,
+    pipewire::channel::Sender<ToPipewireMessage>,
+    mpsc::Receiver<FromPipewireMessage>,
+)> {
+    return Err(anyhow!("NO TESTING"));
+}
+
+#[cfg(not(test))]
 pub(super) fn init_mainloop(
     update_fn: impl Fn(Box<Graph>) + Send + 'static,
 ) -> Result<(
@@ -501,5 +524,119 @@ pub(super) fn init_mainloop(
         Ok(Ok(_)) => Ok((handle, to_pw_tx, from_pw_rx)),
         Ok(Err(init_error)) => Err(init_error),
         Err(recv_error) => Err(recv_error).context("The Pipewire thread unexpectedly exited early"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ch5_1() -> (Vec<Port<()>>, Vec<Port<()>>) {
+        let mut start = vec![
+            Port::new_test(1, 0, PortKind::Source, false),
+            Port::new_test(2, 0, PortKind::Source, false),
+            Port::new_test(3, 0, PortKind::Source, false),
+            Port::new_test(4, 0, PortKind::Source, false),
+            Port::new_test(5, 0, PortKind::Source, false),
+            Port::new_test(6, 0, PortKind::Source, false),
+        ];
+        start[0].channel = "FL".to_string();
+        start[1].channel = "FR".to_string();
+        start[2].channel = "RL".to_string();
+        start[3].channel = "RR".to_string();
+        start[4].channel = "FC".to_string();
+        start[5].channel = "LFE".to_string();
+
+        let mut end = vec![
+            Port::new_test(7, 0, PortKind::Source, false),
+            Port::new_test(8, 0, PortKind::Source, false),
+            Port::new_test(9, 0, PortKind::Source, false),
+            Port::new_test(10, 0, PortKind::Source, false),
+            Port::new_test(11, 0, PortKind::Source, false),
+            Port::new_test(12, 0, PortKind::Source, false),
+        ];
+        end[0].channel = "FL".to_string();
+        end[1].channel = "FR".to_string();
+        end[2].channel = "RL".to_string();
+        end[3].channel = "RR".to_string();
+        end[4].channel = "FC".to_string();
+        end[5].channel = "LFE".to_string();
+
+        return (start, end);
+    }
+
+    #[test]
+    fn stereo_port_mapping() {
+        let mut start = vec![
+            Port::new_test(1, 0, PortKind::Source, false),
+            Port::new_test(2, 0, PortKind::Source, false),
+        ];
+        start[0].channel = "FL".to_string();
+        start[1].channel = "FR".to_string();
+
+        let mut end = vec![
+            Port::new_test(3, 0, PortKind::Source, false),
+            Port::new_test(4, 0, PortKind::Source, false),
+        ];
+        end[0].channel = "FL".to_string();
+        end[1].channel = "FR".to_string();
+
+        let start_refs = start.iter().collect();
+        let end_refs = end.iter().collect();
+
+        assert_eq!(map_ports(start_refs, end_refs), vec![(1, 3), (2, 4)])
+    }
+
+    #[test]
+    fn ch5_1_port_mapping() {
+        let (start, end) = ch5_1();
+
+        let start_refs = start.iter().collect();
+        let end_refs = end.iter().collect();
+
+        assert_eq!(
+            map_ports(start_refs, end_refs),
+            vec![(1, 7), (2, 8), (3, 9), (4, 10), (5, 11), (6, 12)]
+        )
+    }
+
+    #[test]
+    fn ch5_1_with_missing_port_in_end_mapping() {
+        let (start, mut end) = ch5_1();
+
+        end.remove(0);
+
+        let start_refs = start.iter().collect();
+        let end_refs = end.iter().collect();
+
+        assert_eq!(
+            map_ports(start_refs, end_refs),
+            vec![
+                // (1, 7),
+                (2, 8),
+                (3, 9),
+                (4, 10),
+                (5, 11),
+                (6, 12)
+            ]
+        )
+    }
+
+    #[test]
+    fn mono_to_stereo_port_mapping() {
+        let mut start = vec![Port::new_test(1, 0, PortKind::Source, false)];
+        start[0].channel = "MONO".to_string();
+
+        let mut end = vec![
+            Port::new_test(2, 0, PortKind::Source, false),
+            Port::new_test(3, 0, PortKind::Source, false),
+        ];
+        end[0].channel = "FL".to_string();
+        end[1].channel = "FR".to_string();
+
+        let start_refs = start.iter().collect();
+        let end_refs = end.iter().collect();
+
+        assert_eq!(map_ports(start_refs, end_refs), vec![(1, 2), (1, 3)])
     }
 }
