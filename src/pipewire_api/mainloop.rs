@@ -177,25 +177,20 @@ impl Master {
             .filter(|(_, kind, _)| *kind == PortKind::Sink)
             .filter_map(|(port_id, _, _)| store.ports.get(port_id))
             .collect();
-        let port_pairs: Vec<(&Port, &Port)> = start_node
+        let start_ports: Vec<&Port> = start_node
             .ports
             .iter()
             .filter(|(_, kind, _)| *kind == PortKind::Source)
-            .filter_map(|(port_id, _, _)| {
-                let start_port = store.ports.get(port_id)?;
-                let end_port = end_ports
-                    .iter()
-                    .find(|port| port.channel == start_port.channel)?;
-                Some((start_port, *end_port))
-            })
+            .filter_map(|(port_id, _, _)| store.ports.get(port_id))
             .collect();
+        let port_pairs = map_ports(start_ports, end_ports);
         if port_pairs.is_empty() {
             return Err(anyhow!(
                 "No port pairs to connect between nodes {start_id} and {end_id}"
             ));
         }
         for (start_port, end_port) in port_pairs {
-            self.create_port_link(start_port.id, end_port.id)?;
+            self.create_port_link(start_port, end_port)?;
         }
         Ok(())
     }
@@ -291,6 +286,47 @@ impl Master {
 
         Ok(())
     }
+}
+
+/// Maps two different list of ports to a list of mappings.
+/// These are made at best guess but by no means are always correct.
+/// Standard cases such as sorround sound, stereo and MONO ports should
+/// always be correctly mapped.
+///
+/// | Situation | Output |
+/// |-----------|--------|
+/// | start = 1 | map single port to all end ports |
+/// | otherwise | map by channel names |
+// TODO: Maybe announce a possibly incorrect map?
+fn map_ports(start: Vec<&Port>, end: Vec<&Port>) -> Vec<(u32, u32)> {
+    if start.len() == 1 {
+        return end
+            .iter()
+            .map(|end_port| (start[0].id, end_port.id))
+            .collect();
+    }
+    return start
+        .iter()
+        .enumerate()
+        .filter_map(|(index, start_port)| {
+            let start_port_id: u32 = start_port.id;
+            // assume the channel will be at the same index and otherwise search
+            let end_port_id: Option<u32> = end
+                .get(index)
+                .and_then(|port| (port.channel == start_port.channel).then(|| port.id))
+                .or_else(|| {
+                    Some(
+                        end.iter()
+                            .find(|end_port| end_port.channel == start_port.channel)?
+                            .id,
+                    )
+                });
+            if end_port_id.is_none() {
+                debug!("Could not find matching end port for {}", start_port_id);
+            }
+            Some((start_port_id, end_port_id?))
+        })
+        .collect();
 }
 
 pub fn init_node_listeners(
